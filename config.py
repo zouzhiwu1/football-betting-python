@@ -2,7 +2,7 @@
 爬虫配置。可通过环境变量覆盖：
   CRAWLER_BASE_URL  页面地址
   CRAWLER_DOWNLOAD_DIR  下载目录
-  CRAWLER_HEADLESS  设为 1 则无头模式
+CRAWLER_HEADLESS  设为 1 则无头模式
 """
 import os
 

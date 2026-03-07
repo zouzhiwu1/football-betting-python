@@ -3,7 +3,11 @@
 智云比分网 竞足/北单/14场 比赛列表爬虫。
 逻辑与 Java 版 ZhiyunScraperService 一致。
 """
+import os
+import shutil
 import time
+from datetime import datetime
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -18,6 +22,7 @@ from selenium.common.exceptions import (
 
 from config import (
     BASE_URL,
+    DOWNLOAD_DIR,
     ZUCAI_MENU_OPTIONS,
     COL_HOME,
     COL_AWAY,
@@ -31,9 +36,10 @@ from config import (
 
 
 class ZhiyunScraper:
-    def __init__(self, driver, base_url=BASE_URL):
+    def __init__(self, driver, base_url=BASE_URL, download_dir=DOWNLOAD_DIR):
         self.driver = driver
         self.base_url = base_url
+        self.download_dir = download_dir
 
     def run(self):
         """主流程：打开页面 -> 足球 -> 即时比分 -> 足彩 -> 北单，获取列表并下载 Excel（跳过隐藏场次）。"""
@@ -319,6 +325,14 @@ class ZhiyunScraper:
             print(f"第 {index} 场比赛未找到「欧」链接，跳过。该行前几列: {row_preview}")
             return
 
+        # 记录点击前已存在的 xls，用于定位新下载的文件
+        try:
+            before_files = {
+                f for f in os.listdir(self.download_dir) if f.lower().endswith(".xls")
+            }
+        except Exception:
+            before_files = set()
+
         try:
             original_window = self.driver.current_window_handle
         except NoSuchWindowException:
@@ -374,6 +388,7 @@ class ZhiyunScraper:
             print(f"开始下载第 {index} 场 Excel: {home} vs {away}")
             self._scroll_into_view_and_click(export_btn)
             time.sleep(2.0)
+            self._move_latest_download(home, away, before_files)
         except Exception as e:
             print(f"第 {index} 场 {home} vs {away}：下载 Excel 出错：{e}")
         finally:
@@ -385,6 +400,72 @@ class ZhiyunScraper:
                 self.driver.switch_to.window(original_window)
             except Exception:
                 pass
+
+    def _move_latest_download(self, home, away, before_files):
+        """将新下载的 xls 文件按规则重命名并移动到 YYYYMMDD 子目录。"""
+        try:
+            os.makedirs(self.download_dir, exist_ok=True)
+            now = datetime.now()
+            date_folder = now.strftime("%Y%m%d")
+            target_dir = os.path.join(self.download_dir, date_folder)
+            os.makedirs(target_dir, exist_ok=True)
+
+            deadline = time.time() + 60  # 最多等 60 秒
+            new_path = None
+            last_seen = []
+
+            while time.time() < deadline:
+                try:
+                    current = [
+                        f
+                        for f in os.listdir(self.download_dir)
+                        if f.lower().endswith(".xls")
+                    ]
+                except Exception:
+                    time.sleep(1.0)
+                    continue
+                last_seen = current
+                added = [f for f in current if f not in before_files]
+                if added:
+                    candidates = [
+                        os.path.join(self.download_dir, f) for f in added
+                    ]
+                    new_path = max(candidates, key=os.path.getmtime)
+                    break
+                time.sleep(1.0)
+
+            # 若没能明确找到新增文件，则退回到目录中最近修改的 xls
+            if not new_path and last_seen:
+                candidates = [
+                    os.path.join(self.download_dir, f) for f in last_seen
+                ]
+                new_path = max(candidates, key=os.path.getmtime)
+
+            if not new_path:
+                print("未发现新下载的 Excel 文件，跳过重命名")
+                return
+
+            safe_home = self._safe_name(home)
+            safe_away = self._safe_name(away)
+            # 以执行时的当前时间作为时间点：YYYYMMDD + 当前小时（如 09:08 -> 09）
+            hour_part = now.strftime("%H")
+            timestamp = now.strftime("%Y%m%d") + hour_part
+            new_name = f"{safe_home} VS {safe_away}{timestamp}.xls"
+            target_path = os.path.join(target_dir, new_name)
+
+            # 若目标文件已存在，则先删除，达到“直接替换”的效果
+            if os.path.exists(target_path):
+                os.remove(target_path)
+
+            shutil.move(new_path, target_path)
+            print(f"已保存为: {target_path}")
+        except Exception as e:
+            print(f"重命名/移动下载文件失败: {e}")
+
+    def _safe_name(self, name: str) -> str:
+        """将联赛/队名中的非法文件名字符替换为下划线。"""
+        invalid = '\\\\/:*?\"<>|'
+        return "".join("_" if ch in invalid else ch for ch in (name or "")).strip()
 
     def _get_cell_text(self, row, col_index):
         """取单元格文本；若 getText 为空则用 JS textContent。"""

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 入口：创建 Chrome WebDriver，运行爬虫后退出。
+执行时以当前时间点作为文件名中的小时（如 09:08 -> 09）。
 """
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
