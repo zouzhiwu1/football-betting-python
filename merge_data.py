@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-批处理：将指定目录下的所有 .xls 数据文件按文件名排序后合并为一个一览 CSV。
+批处理1（与批处理2 calc_car.py 分开）：将指定目录下的所有 .xls 数据文件
+按文件名排序后合并为一个一览表，输出文件名为 Master{YYYYMMDD}.csv。
 用法: python merge_data.py <数据目录或相对子目录>
   - 相对路径（如 20260307）会相对于 config.DOWNLOAD_DIR（下载目录）解析
   - 绝对路径则直接使用
@@ -36,7 +37,7 @@ FILENAME_PATTERN = re.compile(r"^(.+?)\s+VS\s+(.+)(\d{10})\.xls$", re.IGNORECASE
 
 
 def parse_filename(basename: str):
-    """解析文件名，返回 (主队, 客队, 时间点)。无法解析时返回 None。"""
+    """解析文件名，返回 (主队, 客队, 时间点)。时间点为 YYYYMMDDHH（10 位）。无法解析时返回 None。"""
     # macOS 可能返回 NFD 形式，统一规范为 NFC 再匹配
     name = unicodedata.normalize("NFC", basename.strip())
     m = FILENAME_PATTERN.match(name)
@@ -45,7 +46,7 @@ def parse_filename(basename: str):
     home = m.group(1).strip()
     away = m.group(2).strip()
     yyyymmddhh = m.group(3)
-    time_point = yyyymmddhh[-2:]  # HH
+    time_point = yyyymmddhh  # YYYYMMDDHH（10 位）
     return home, away, time_point
 
 
@@ -180,7 +181,8 @@ def main():
         sys.exit(0)
 
     folder_name = os.path.basename(data_dir)
-    output_path = os.path.join(data_dir, f"{folder_name}.csv")
+    # 一览表文件名：Master{YYYYMMDD}.csv
+    output_path = os.path.join(data_dir, f"Master{folder_name}.csv")
 
     try:
         header_row1, header_row2 = get_csv_headers(project_dir)

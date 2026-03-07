@@ -1,0 +1,9 @@
+# 调试时保存的详情页 HTML，可随时删除
+debug_export_page_*.html
+
+# 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store

@@ -2,11 +2,12 @@
 """
 智云比分网 竞足/北单/14场 比赛列表爬虫。
 逻辑与 Java 版 ZhiyunScraperService 一致。
+下载文件按跨天临界点存入对应 YYYYMMDD 子目录。
 """
 import os
-import shutil
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -23,7 +24,10 @@ from selenium.common.exceptions import (
 from config import (
     BASE_URL,
     DOWNLOAD_DIR,
+    CUTOFF_HOUR,
     ZUCAI_MENU_OPTIONS,
+    COL_DATE,
+    COL_TIME,
     COL_HOME,
     COL_AWAY,
     WAIT_ELEMENT,
@@ -325,14 +329,6 @@ class ZhiyunScraper:
             print(f"第 {index} 场比赛未找到「欧」链接，跳过。该行前几列: {row_preview}")
             return
 
-        # 记录点击前已存在的 xls，用于定位新下载的文件
-        try:
-            before_files = {
-                f for f in os.listdir(self.download_dir) if f.lower().endswith(".xls")
-            }
-        except Exception:
-            before_files = set()
-
         try:
             original_window = self.driver.current_window_handle
         except NoSuchWindowException:
@@ -363,33 +359,172 @@ class ZhiyunScraper:
 
         try:
             self.driver.switch_to.window(new_handle)
-            time.sleep(0.8)
-            wait_new = WebDriverWait(self.driver, WAIT_ELEMENT)
-            # 导出Excel 可能是 <a> 或 <button>，多策略查找
+            try:
+                WebDriverWait(self.driver, WAIT_ELEMENT).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+            except Exception:
+                pass
+            time.sleep(2.5)  # 详情页可能较慢，多等一会
+
+            wait_export = WebDriverWait(self.driver, 5)
+            # 导出按钮：优先用页面实际 id（debug HTML 中为 id="downobj"）
+            export_btn = None
+            try:
+                export_btn = wait_export.until(
+                    EC.element_to_be_clickable((By.ID, "downobj"))
+                )
+            except (TimeoutException, Exception):
+                pass
             export_xpaths = [
+                "//a[@id='downobj']",
+                "//*[@id='downobj']",
                 "//a[contains(.,'导出') and contains(.,'Excel')]",
+                "//a[contains(.,'导出')]",
+                "//*[contains(text(),'导出Excel')]",
                 "//button[contains(.,'导出') and contains(.,'Excel')]",
                 "//*[contains(text(),'导出') and contains(text(),'Excel')]",
+                "//*[contains(text(),'导出')]",
+                "//a[contains(.,'Excel')]",
             ]
-            export_btn = None
-            for xpath in export_xpaths:
-                try:
-                    els = self.driver.find_elements(By.XPATH, xpath)
-                    for el in els:
-                        if el.is_displayed() and el.is_enabled():
-                            export_btn = el
-                            break
-                    if export_btn:
-                        break
-                except Exception:
-                    continue
             if not export_btn:
+                for xpath in export_xpaths:
+                    try:
+                        els = wait_export.until(
+                            EC.presence_of_all_elements_located((By.XPATH, xpath))
+                        )
+                        for el in els:
+                            try:
+                                if el.is_displayed() and el.is_enabled():
+                                    export_btn = el
+                                    break
+                            except Exception:
+                                continue
+                        if export_btn:
+                            break
+                    except TimeoutException:
+                        continue
+                    except Exception:
+                        continue
+
+            if not export_btn:
+                self.driver.switch_to.default_content()
+                time.sleep(0.5)
+                for xpath in export_xpaths[:6]:
+                    try:
+                        els = self.driver.find_elements(By.XPATH, xpath)
+                        for el in els:
+                            try:
+                                if el.is_displayed() and el.is_enabled():
+                                    export_btn = el
+                                    break
+                            except Exception:
+                                continue
+                        if export_btn:
+                            break
+                    except Exception:
+                        continue
+
+            if not export_btn:
+                try:
+                    self.driver.switch_to.default_content()
+                    for iframe in self.driver.find_elements(By.TAG_NAME, "iframe"):
+                        try:
+                            self.driver.switch_to.frame(iframe)
+                            for xpath in export_xpaths[:6]:
+                                try:
+                                    els = self.driver.find_elements(By.XPATH, xpath)
+                                    for el in els:
+                                        try:
+                                            if el.is_displayed() and el.is_enabled():
+                                                export_btn = el
+                                                break
+                                        except Exception:
+                                            continue
+                                    if export_btn:
+                                        break
+                                except Exception:
+                                    continue
+                            if export_btn:
+                                break
+                        except Exception:
+                            pass
+                        finally:
+                            if not export_btn:
+                                self.driver.switch_to.default_content()
+                except Exception:
+                    pass
+
+            if not export_btn:
+                self._save_debug_page_source(index, home, away)
                 raise ValueError("未找到「导出Excel」按钮")
+
+            # 当前时间 -> 日期子目录，直接下载到该目录再重命名（不先下到北单再移动）
+            time_suffix = datetime.now().strftime("%Y%m%d%H")
+            date_folder = self._date_folder_from_time_suffix(time_suffix)
+            target_dir = os.path.join(self.download_dir, date_folder)
+            os.makedirs(target_dir, exist_ok=True)
+            try:
+                self.driver.execute_cdp_cmd(
+                    "Page.setDownloadBehavior",
+                    {"behavior": "allow", "downloadPath": os.path.abspath(target_dir)},
+                )
+            except Exception as cdp_err:
+                print(f"  设置下载目录失败，将使用默认目录: {cdp_err}", file=__import__("sys").stderr)
+            try:
+                before_files = {
+                    f for f in os.listdir(target_dir) if f.lower().endswith(".xls")
+                }
+            except Exception:
+                before_files = set()
+
             print(f"开始下载第 {index} 场 Excel: {home} vs {away}")
-            self._scroll_into_view_and_click(export_btn)
+            time.sleep(1.5)  # 详情页表格/脚本可能较晚渲染，多等一会再找 downobj
+            try:
+                clicked = self.driver.execute_script("""
+                    var el = document.getElementById('downobj');
+                    if (el) { el.scrollIntoView({block:'center'}); el.click(); return true; }
+                    var f = document.getElementById('DownloadForm');
+                    if (f) { f.submit(); return true; }
+                    return false;
+                """)
+                if not clicked:
+                    try:
+                        self.driver.find_element(By.ID, "downobj").click()
+                    except Exception:
+                        try:
+                            self.driver.find_element(By.ID, "DownloadForm").submit()
+                        except Exception:
+                            pass
+            except Exception as click_err:
+                try:
+                    self._scroll_into_view_and_click(export_btn)
+                except Exception:
+                    try:
+                        for xpath in ["//a[@id='downobj']", "//*[contains(text(),'导出Excel')]"]:
+                            els = self.driver.find_elements(By.XPATH, xpath)
+                            for el in els:
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", el)
+                                    break
+                                except Exception:
+                                    continue
+                            else:
+                                continue
+                            break
+                    except Exception:
+                        pass
+                print(f"  点击导出时异常（仍会尝试移动已下载文件）: {click_err}", file=__import__("sys").stderr)
             time.sleep(2.0)
-            self._move_latest_download(home, away, before_files)
+            try:
+                self._rename_latest_download_in_dir(home, away, target_dir, before_files, time_suffix)
+            except Exception as move_err:
+                print(f"  移动下载文件到子目录失败: {move_err}", file=__import__("sys").stderr)
         except Exception as e:
+            try:
+                self._save_debug_page_source(index, home, away)
+            except Exception:
+                pass
             print(f"第 {index} 场 {home} vs {away}：下载 Excel 出错：{e}")
         finally:
             try:
@@ -401,15 +536,71 @@ class ZhiyunScraper:
             except Exception:
                 pass
 
-    def _move_latest_download(self, home, away, before_files):
-        """将新下载的 xls 文件按规则重命名并移动到 YYYYMMDD 子目录。"""
+    def _save_debug_page_source(self, index, home, away):
+        """未找到导出按钮时保存当前页面 HTML，便于排查选择器。"""
         try:
-            os.makedirs(self.download_dir, exist_ok=True)
-            now = datetime.now()
-            date_folder = now.strftime("%Y%m%d")
-            target_dir = os.path.join(self.download_dir, date_folder)
-            os.makedirs(target_dir, exist_ok=True)
+            debug_dir = os.path.dirname(os.path.abspath(__file__))
+            safe = re.sub(r'[\s\\/:*?"<>|]', "_", f"{index}_{home}_{away}")[:80]
+            path = os.path.join(debug_dir, f"debug_export_page_{safe}.html")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.driver.page_source)
+            print(f"  已保存页面 HTML 便于排查: {path}", file=__import__("sys").stderr)
+        except Exception as e:
+            print(f"  保存调试 HTML 失败: {e}", file=__import__("sys").stderr)
 
+    def _get_time_suffix_from_row(self, row):
+        """从表格行解析日期、时间，返回 10 位 YYYYMMDDHH；解析失败时用当前时间。"""
+        date_str = self._get_cell_text(row, COL_DATE).strip()
+        time_str = self._get_cell_text(row, COL_TIME).strip()
+        y, m, d, h = None, None, None, None
+        for sep in ["-", "/", ".", "－"]:
+            if sep in date_str:
+                parts = re.split(r"[-/.\s－]+", date_str, maxsplit=2)
+                if len(parts) >= 2:
+                    a, b = parts[0].strip(), parts[1].strip()
+                    if len(a) == 4 and a.isdigit():
+                        y = int(a)
+                        m = int(b) if b.isdigit() else None
+                        d = int(parts[2].strip()) if len(parts) > 2 and parts[2].strip().isdigit() else None
+                    else:
+                        m = int(a) if a.isdigit() else None
+                        d = int(b) if b.isdigit() else None
+                break
+        if m is None and date_str.isdigit() and len(date_str) >= 4:
+            m, d = int(date_str[:2]), int(date_str[2:4]) if len(date_str) >= 4 else None
+        if time_str:
+            mt = re.search(r"(\d{1,2})", time_str)
+            if mt:
+                h = int(mt.group(1))
+        if y is None:
+            y = datetime.now().year
+        if m is None:
+            m = datetime.now().month
+        if d is None:
+            d = datetime.now().day
+        if h is None:
+            h = datetime.now().hour
+        return f"{y:04d}{m:02d}{d:02d}{h:02d}"
+
+    def _date_folder_from_time_suffix(self, time_suffix: str) -> str:
+        """根据 YYYYMMDDHH 与跨天临界点计算存放目录名 YYYYMMDD。"""
+        if not time_suffix or len(time_suffix) < 10:
+            return datetime.now().strftime("%Y%m%d")
+        try:
+            y, m, d = int(time_suffix[:4]), int(time_suffix[4:6]), int(time_suffix[6:8])
+            h = int(time_suffix[8:10])
+        except (ValueError, IndexError):
+            return datetime.now().strftime("%Y%m%d")
+        if h >= CUTOFF_HOUR:
+            return f"{y:04d}{m:02d}{d:02d}"
+        dt = datetime(y, m, d) - timedelta(days=1)
+        return dt.strftime("%Y%m%d")
+
+    def _rename_latest_download_in_dir(
+        self, home, away, target_dir: str, before_files: set, time_suffix: str
+    ):
+        """在指定目录内等待新出现的 .xls 并重命名为 主队 VS 客队{time_suffix}.xls（不跨目录移动）。"""
+        try:
             deadline = time.time() + 60  # 最多等 60 秒
             new_path = None
             last_seen = []
@@ -418,7 +609,7 @@ class ZhiyunScraper:
                 try:
                     current = [
                         f
-                        for f in os.listdir(self.download_dir)
+                        for f in os.listdir(target_dir)
                         if f.lower().endswith(".xls")
                     ]
                 except Exception:
@@ -428,16 +619,15 @@ class ZhiyunScraper:
                 added = [f for f in current if f not in before_files]
                 if added:
                     candidates = [
-                        os.path.join(self.download_dir, f) for f in added
+                        os.path.join(target_dir, f) for f in added
                     ]
                     new_path = max(candidates, key=os.path.getmtime)
                     break
                 time.sleep(1.0)
 
-            # 若没能明确找到新增文件，则退回到目录中最近修改的 xls
             if not new_path and last_seen:
                 candidates = [
-                    os.path.join(self.download_dir, f) for f in last_seen
+                    os.path.join(target_dir, f) for f in last_seen
                 ]
                 new_path = max(candidates, key=os.path.getmtime)
 
@@ -447,20 +637,16 @@ class ZhiyunScraper:
 
             safe_home = self._safe_name(home)
             safe_away = self._safe_name(away)
-            # 以执行时的当前时间作为时间点：YYYYMMDD + 当前小时（如 09:08 -> 09）
-            hour_part = now.strftime("%H")
-            timestamp = now.strftime("%Y%m%d") + hour_part
-            new_name = f"{safe_home} VS {safe_away}{timestamp}.xls"
-            target_path = os.path.join(target_dir, new_name)
+            new_name = f"{safe_home} VS {safe_away}{time_suffix}.xls"
+            dest_path = os.path.join(target_dir, new_name)
 
-            # 若目标文件已存在，则先删除，达到“直接替换”的效果
-            if os.path.exists(target_path):
-                os.remove(target_path)
-
-            shutil.move(new_path, target_path)
-            print(f"已保存为: {target_path}")
+            if os.path.abspath(new_path) != os.path.abspath(dest_path):
+                if os.path.exists(dest_path):
+                    os.remove(dest_path)
+                os.rename(new_path, dest_path)
+            print(f"已保存为: {dest_path}")
         except Exception as e:
-            print(f"重命名/移动下载文件失败: {e}")
+            print(f"重命名下载文件失败: {e}")
 
     def _safe_name(self, name: str) -> str:
         """将联赛/队名中的非法文件名字符替换为下划线。"""

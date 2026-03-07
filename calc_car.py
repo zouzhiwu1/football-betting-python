@@ -1,0 +1,164 @@
+# -*- coding: utf-8 -*-
+"""
+批处理2（与批处理1 merge_data.py 分开）：按《算法概要》2.2 节，
+在一览文件基础上按「主队、客队、时间点」分组，对 D～L 列计算综合评估值：
+D～I 列用 (MAX-MIN)/AVERAGE，J、K、L 列用 VARP(列)*100。输出 CAR{YYYYMMDD}.xlsx。
+依赖：需先对同一目录执行批处理1（merge_data.py）生成一览 CSV。
+
+用法: python calc_car.py <目录1> [目录2 ...]
+  每个目录可为相对路径（如 20260307，基于 DOWNLOAD_DIR）或绝对路径。
+  可一次传入多个目录，逐个生成各目录下的 CAR{YYYYMMDD}.xlsx。
+例如: python calc_car.py 20260307
+     python calc_car.py 20260306 20260307 20260308
+"""
+import os
+import sys
+
+import pandas as pd
+
+from config import DOWNLOAD_DIR
+
+# 与 merge_data 一致：一览表 12 列，A/B/C=主队/客队/时间点，D～L=数据列（索引 3～11）
+NUM_COLUMNS = 12
+COL_KEYS = [0, 1, 2]  # A,B,C: 主队, 客队, 时间点
+COL_VALUE_START = 3   # D 列
+COL_VALUE_END = 11    # L 列（含）
+# D～I 列（索引 3～8）用 (MAX-MIN)/AVERAGE；J、K、L 列（索引 9～11）用 VARP*100
+COL_RANGE_MAX_MIN_AVG = (3, 8)   # D～I
+COL_RANGE_VARP = (9, 11)         # J～L
+
+
+def _to_numeric(series: pd.Series) -> pd.Series:
+    """将一列转为数值，无效的变为 NaN。"""
+    return pd.to_numeric(series, errors="coerce")
+
+
+def compute_max_min_avg(series: pd.Series) -> float:
+    """
+    按 2.2 节：综合评估值 = (MAX - MIN) / AVERAGE。用于 D～I 列。
+    若 AVERAGE 为 0 或全为空，返回 0。
+    """
+    s = _to_numeric(series).dropna()
+    if s.empty or s.mean() == 0:
+        return 0.0
+    return float((s.max() - s.min()) / s.mean())
+
+
+def compute_varp_100(series: pd.Series) -> float:
+    """
+    按 2.2 节：J、K、L 列用 VARP(列)*100。
+    VARP 为总体方差（ddof=0），空或单值返回 0。
+    """
+    s = _to_numeric(series).dropna()
+    if s.empty or len(s) < 2:
+        return 0.0
+    return float(s.var(ddof=0) * 100)
+
+
+def run(data_dir: str, project_dir: str) -> None:
+    """
+    从 data_dir 下读取 {folder_name}.csv，按 (主队, 客队, 时间点) 分组计算 D～L，
+    以 template.xlsx 为模板生成 CAR{YYYYMMDD}.xlsx，写入 data_dir。
+    """
+    folder_name = os.path.basename(data_dir.rstrip(os.sep))
+    # 一览表文件名：Master{YYYYMMDD}.csv
+    csv_path = os.path.join(data_dir, f"Master{folder_name}.csv")
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(f"一览表不存在，请先执行批处理1 merge_data.py: {csv_path}")
+
+    template_path = os.path.join(project_dir, "template.xlsx")
+    if not os.path.isfile(template_path):
+        raise FileNotFoundError(f"工程目录下未找到 template.xlsx: {project_dir}")
+
+    # 读一览 CSV：merge_data 写了两行表头，数据从第 3 行开始；统一按字符串读入避免混合类型告警
+    df = pd.read_csv(csv_path, encoding="utf-8-sig", header=None, dtype=str)
+    if len(df) <= 2:
+        raise ValueError(f"一览表无数据行: {csv_path}")
+    df = df.iloc[2:].reset_index(drop=True)  # 去掉两行表头，只保留数据
+    df.columns = [f"C{i}" for i in range(df.shape[1])]  # 临时列名
+    if df.shape[1] < NUM_COLUMNS:
+        raise ValueError(f"一览表列数不足 {NUM_COLUMNS} 列: {csv_path}")
+
+    # 分组键：主队、客队、时间点（前三列）
+    group_cols = [df.columns[i] for i in COL_KEYS]
+    # 计算列：D～L（索引 3～11）
+    value_cols = [df.columns[i] for i in range(COL_VALUE_START, COL_VALUE_END + 1)]
+    if not value_cols:
+        raise ValueError("一览表需包含 D～L 数据列")
+
+    # 按 (主队, 客队, 时间点) 分组：D～I 用 (MAX-MIN)/AVERAGE，J～L 用 VARP*100
+    results = []
+    for key, grp in df.groupby(group_cols, dropna=False):
+        if isinstance(key, (list, tuple)):
+            row_key = list(key)
+        else:
+            row_key = [key]
+        if len(row_key) < 3:
+            row_key.extend([""] * (3 - len(row_key)))
+        values = []
+        for i, c in enumerate(value_cols):
+            col_idx = COL_VALUE_START + i
+            if COL_RANGE_MAX_MIN_AVG[0] <= col_idx <= COL_RANGE_MAX_MIN_AVG[1]:
+                values.append(compute_max_min_avg(grp[c]))
+            elif COL_RANGE_VARP[0] <= col_idx <= COL_RANGE_VARP[1]:
+                values.append(compute_varp_100(grp[c]))
+            else:
+                values.append(compute_max_min_avg(grp[c]))
+        results.append(row_key + values)
+    if not results:
+        raise ValueError("没有可分组的数据行")
+
+    # 以 template 为模板创建 CAR{YYYYMMDD}.xlsx：前两行为模板表头，其后为计算得到的数据行
+    tmpl = pd.read_excel(template_path, header=None)
+    col_names = [str(tmpl.iloc[0, i]) if i < tmpl.shape[1] else "" for i in range(NUM_COLUMNS)]
+    out_path = os.path.join(data_dir, f"CAR{folder_name}.xlsx")
+    data_df = pd.DataFrame(results, columns=col_names)
+    header_df = tmpl.iloc[:2, :NUM_COLUMNS].copy()
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        header_df.to_excel(writer, sheet_name="Sheet1", index=False, header=False)
+        data_df.to_excel(writer, sheet_name="Sheet1", index=False, header=False, startrow=len(header_df))
+    print(f"已按 2.2 节计算，共 {len(results)} 组 -> {out_path}")
+
+
+def _resolve_data_dir(raw_arg: str) -> str:
+    """将参数解析为绝对数据目录（支持相对路径）。"""
+    raw_arg = raw_arg.strip().rstrip(os.sep)
+    if os.path.isabs(raw_arg):
+        return os.path.abspath(raw_arg)
+    return os.path.abspath(os.path.join(DOWNLOAD_DIR, raw_arg))
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("用法: python calc_car.py <目录1> [目录2 ...]  （批处理2，与 merge_data.py 分开）")
+        print("  相对路径会基于 DOWNLOAD_DIR 解析；可传入多个目录逐个处理")
+        print("  请先对每个目录执行 merge_data.py 生成一览 CSV")
+        sys.exit(1)
+
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    dirs = [d for d in sys.argv[1:] if d.strip()]
+    if not dirs:
+        print("错误: 请至少指定一个数据目录")
+        sys.exit(1)
+
+    failed = 0
+    for raw_arg in dirs:
+        data_dir = _resolve_data_dir(raw_arg)
+        if not os.path.isdir(data_dir):
+            print(f"错误: 目录不存在: {data_dir}")
+            failed += 1
+            continue
+        try:
+            run(data_dir, project_dir)
+        except FileNotFoundError as e:
+            print(f"错误 [{data_dir}]: {e}")
+            failed += 1
+        except ValueError as e:
+            print(f"错误 [{data_dir}]: {e}")
+            failed += 1
+    if failed:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
