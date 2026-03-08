@@ -11,6 +11,7 @@
 """
 import csv
 import datetime
+import io
 import os
 import re
 import sys
@@ -70,7 +71,7 @@ def read_xls_data(path: str):
     for encoding in ("gb18030", "gbk", "utf-8", "gb2312", "latin1"):
         try:
             html = raw.decode(encoding)
-            tables = pd.read_html(html)
+            tables = pd.read_html(io.StringIO(html))
             for t in tables:
                 if t is not None and len(t) > DATA_START_ROW:
                     df = t
@@ -89,7 +90,7 @@ def read_xls_data(path: str):
         for encoding in ("gb18030", "gbk", "utf-8"):
             try:
                 html = raw.decode(encoding)
-                tables = pd.read_html(html, flavor="lxml")
+                tables = pd.read_html(io.StringIO(html), flavor="lxml")
                 for t in tables:
                     if t is not None and len(t) > DATA_START_ROW:
                         df = t

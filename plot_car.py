@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
-from config import DOWNLOAD_DIR
+from config import DOWNLOAD_DIR, REPORT_DIR
 
 # 综合评估表列：A=主队(0), B=客队(1), C=时间点(2), D～L=数据(3～11)
 # 欧赔：初指 D/E/F(3,4,5)，即时 G/H/I(6,7,8)；凯利 J/K/L(9,10,11)
@@ -71,12 +71,14 @@ def _to_float(series: pd.Series):
 
 def plot_match_curves(data_dir: str, project_dir: str) -> int:
     """
-    读取 data_dir 下的 CAR{YYYYMMDD}.xlsx，按（主队、客队）分组，
-    为每场比赛生成一张图，包含欧赔指数曲线图与凯利指数曲线图两个子图。
+    读取 REPORT_DIR/{YYYYMMDD}/ 下的 CAR{YYYYMMDD}.xlsx，按（主队、客队）分组，
+    为每场比赛生成一张图，包含欧赔指数曲线图与凯利指数曲线图两个子图；
+    图片写入 REPORT_DIR/{YYYYMMDD}/。
     返回成功生成的图片数量。
     """
     folder_name = os.path.basename(data_dir.rstrip(os.sep))
-    car_path = os.path.join(data_dir, f"CAR{folder_name}.xlsx")
+    report_dir = os.path.join(REPORT_DIR, folder_name)
+    car_path = os.path.join(report_dir, f"CAR{folder_name}.xlsx")
     if not os.path.isfile(car_path):
         raise FileNotFoundError(f"综合评估表不存在，请先执行 calc_car.py: {car_path}")
 
@@ -142,8 +144,9 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         ax2.grid(True, alpha=0.3)
 
         plt.tight_layout()
+        os.makedirs(report_dir, exist_ok=True)
         safe_name = f"{_safe_filename(home_str)}_VS_{_safe_filename(away_str)}_曲线.png"
-        out_path = os.path.join(data_dir, safe_name)
+        out_path = os.path.join(report_dir, safe_name)
         plt.savefig(out_path, dpi=120, bbox_inches="tight")
         plt.close()
         print(f"  已生成: {out_path}")

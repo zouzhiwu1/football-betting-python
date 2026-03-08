@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.football.betting.main</string>
+  <string>com.football.betting.pipeline</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/zhiwuzou/Documents/cursor/football-betting-python/.venv/bin/python</string>
+    <string>/Users/zhiwuzou/Documents/cursor/football-betting-pipeline/.venv/bin/python</string>
     <string>main.py</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-betting-python</string>
+  <string>/Users/zhiwuzou/Documents/cursor/football-betting-pipeline</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>

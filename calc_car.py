@@ -18,7 +18,7 @@ import sys
 
 import pandas as pd
 
-from config import DOWNLOAD_DIR
+from config import DOWNLOAD_DIR, REPORT_DIR
 
 # 与 merge_data 一致：一览表 12 列，A/B/C=主队/客队/时间点，D～L=数据列（索引 3～11）
 NUM_COLUMNS = 12
@@ -59,11 +59,11 @@ def compute_varp_100(series: pd.Series) -> float:
 
 def run(data_dir: str, project_dir: str) -> None:
     """
-    从 data_dir 下读取 {folder_name}.csv，按 (主队, 客队, 时间点) 分组计算 D～L，
-    以 template.xlsx 为模板生成 CAR{YYYYMMDD}.xlsx，写入 data_dir。
+    从 data_dir 下读取 Master{folder_name}.csv，按 (主队, 客队, 时间点) 分组计算 D～L，
+    以 template.xlsx 为模板生成 CAR{YYYYMMDD}.xlsx，写入 REPORT_DIR/{YYYYMMDD}/。
     """
     folder_name = os.path.basename(data_dir.rstrip(os.sep))
-    # 一览表文件名：Master{YYYYMMDD}.csv
+    # 一览表在数据目录（crawl/merge 输出）
     csv_path = os.path.join(data_dir, f"Master{folder_name}.csv")
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(f"一览表不存在，请先执行批处理1 merge_data.py: {csv_path}")
@@ -110,10 +110,12 @@ def run(data_dir: str, project_dir: str) -> None:
     if not results:
         raise ValueError("没有可分组的数据行")
 
-    # 以 template 为模板创建 CAR{YYYYMMDD}.xlsx：前两行为模板表头，其后为计算得到的数据行
+    # 以 template 为模板创建 CAR{YYYYMMDD}.xlsx，写入 REPORT_DIR/{YYYYMMDD}/
+    report_dir = os.path.join(REPORT_DIR, folder_name)
+    os.makedirs(report_dir, exist_ok=True)
     tmpl = pd.read_excel(template_path, header=None)
     col_names = [str(tmpl.iloc[0, i]) if i < tmpl.shape[1] else "" for i in range(NUM_COLUMNS)]
-    out_path = os.path.join(data_dir, f"CAR{folder_name}.xlsx")
+    out_path = os.path.join(report_dir, f"CAR{folder_name}.xlsx")
     data_df = pd.DataFrame(results, columns=col_names)
     header_df = tmpl.iloc[:2, :NUM_COLUMNS].copy()
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:

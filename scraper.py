@@ -26,7 +26,6 @@ from config import (
     DOWNLOAD_DIR,
     DEBUG_LOG_DIR,
     CUTOFF_HOUR,
-    TIMEZONE,
     ZUCAI_MENU_OPTIONS,
     COL_DATE,
     COL_TIME,
@@ -40,19 +39,8 @@ from config import (
     WAIT_FIRST_ROW_CHANGED,
 )
 
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    ZoneInfo = None  # Python < 3.9
-
-
 def _now_in_tz():
-    """返回配置时区下的当前时间，用于下载目录/文件名（避免服务器 UTC 导致临界点错位）。"""
-    if ZoneInfo is not None:
-        try:
-            return datetime.now(ZoneInfo(TIMEZONE))
-        except Exception:
-            pass
+    """返回本机当前时间（本地时区），用于下载目录/文件名。"""
     return datetime.now()
 
 
@@ -64,6 +52,9 @@ class ZhiyunScraper:
 
     def run(self):
         """主流程：打开页面 -> 足球 -> 即时比分 -> 足彩 -> 北单，获取列表并下载 Excel（跳过隐藏场次）。"""
+        now = _now_in_tz()
+        self._run_time_suffix = now.strftime("%Y%m%d%H")
+        print(f"[爬虫] 本次运行时间戳（文件名用）: {self._run_time_suffix} （当前时区时间: {now.strftime('%Y-%m-%d %H:%M')}）", flush=True)
         self.driver.get(self.base_url)
         wait = WebDriverWait(self.driver, WAIT_ELEMENT)
 
@@ -101,7 +92,7 @@ class ZhiyunScraper:
                 home = self._get_cell_text(row, COL_HOME)
                 away = self._get_cell_text(row, COL_AWAY)
                 print(f"{i}. {home} vs {away}")
-                self._download_excel_for_row(wait, row, i, home, away)
+                self._download_excel_for_row(wait, row, i, home, away, time_suffix=self._run_time_suffix)
             print()
 
     def _hover_zucai_then_click_option(self, wait, option_text):
@@ -335,7 +326,7 @@ class ZhiyunScraper:
                 raise
         return []
 
-    def _download_excel_for_row(self, wait, row, index, home, away):
+    def _download_excel_for_row(self, wait, row, index, home, away, time_suffix=None):
         """点击当前行的「欧」链接（列表页为「析亚欧」），弹出详情页后点击「导出Excel」下载，再关闭弹窗。"""
         # 兼容「欧」「析亚欧」等，含欧字的链接或可点击元素
         europe_links = row.find_elements(By.XPATH, ".//a[contains(.,'欧')]")
@@ -476,8 +467,9 @@ class ZhiyunScraper:
                 self._save_debug_page_source(index, home, away)
                 raise ValueError("未找到「导出Excel」按钮")
 
-            # 文件名用当时时间 YYYYMMDDHH；存放目录按临界点：临界点前→前一天文件夹，临界点及之后→当天文件夹
-            time_suffix = _now_in_tz().strftime("%Y%m%d%H")
+            # 文件名用本次运行时的当前时间 YYYYMMDDHH（由 run() 传入）；存放目录按临界点
+            if time_suffix is None:
+                time_suffix = _now_in_tz().strftime("%Y%m%d%H")
             date_folder = self._date_folder_from_time_suffix(time_suffix)
             target_dir = os.path.join(self.download_dir, date_folder)
             os.makedirs(target_dir, exist_ok=True)
