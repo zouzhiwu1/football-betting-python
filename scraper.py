@@ -24,7 +24,9 @@ from selenium.common.exceptions import (
 from config import (
     BASE_URL,
     DOWNLOAD_DIR,
+    DEBUG_LOG_DIR,
     CUTOFF_HOUR,
+    TIMEZONE,
     ZUCAI_MENU_OPTIONS,
     COL_DATE,
     COL_TIME,
@@ -37,6 +39,21 @@ from config import (
     WAIT_ROW_COUNT,
     WAIT_FIRST_ROW_CHANGED,
 )
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # Python < 3.9
+
+
+def _now_in_tz():
+    """返回配置时区下的当前时间，用于下载目录/文件名（避免服务器 UTC 导致临界点错位）。"""
+    if ZoneInfo is not None:
+        try:
+            return datetime.now(ZoneInfo(TIMEZONE))
+        except Exception:
+            pass
+    return datetime.now()
 
 
 class ZhiyunScraper:
@@ -459,8 +476,8 @@ class ZhiyunScraper:
                 self._save_debug_page_source(index, home, away)
                 raise ValueError("未找到「导出Excel」按钮")
 
-            # 当前时间 -> 日期子目录，直接下载到该目录再重命名（不先下到北单再移动）
-            time_suffix = datetime.now().strftime("%Y%m%d%H")
+            # 文件名用当时时间 YYYYMMDDHH；存放目录按临界点：临界点前→前一天文件夹，临界点及之后→当天文件夹
+            time_suffix = _now_in_tz().strftime("%Y%m%d%H")
             date_folder = self._date_folder_from_time_suffix(time_suffix)
             target_dir = os.path.join(self.download_dir, date_folder)
             os.makedirs(target_dir, exist_ok=True)
@@ -537,9 +554,10 @@ class ZhiyunScraper:
                 pass
 
     def _save_debug_page_source(self, index, home, away):
-        """未找到导出按钮时保存当前页面 HTML，便于排查选择器。"""
+        """未找到导出按钮时保存当前页面 HTML，便于排查选择器。输出到 DEBUG_LOG_DIR。"""
         try:
-            debug_dir = os.path.dirname(os.path.abspath(__file__))
+            os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
+            debug_dir = DEBUG_LOG_DIR
             safe = re.sub(r'[\s\\/:*?"<>|]', "_", f"{index}_{home}_{away}")[:80]
             path = os.path.join(debug_dir, f"debug_export_page_{safe}.html")
             with open(path, "w", encoding="utf-8") as f:
@@ -572,25 +590,27 @@ class ZhiyunScraper:
             mt = re.search(r"(\d{1,2})", time_str)
             if mt:
                 h = int(mt.group(1))
+        now = _now_in_tz()
         if y is None:
-            y = datetime.now().year
+            y = now.year
         if m is None:
-            m = datetime.now().month
+            m = now.month
         if d is None:
-            d = datetime.now().day
+            d = now.day
         if h is None:
-            h = datetime.now().hour
+            h = now.hour
         return f"{y:04d}{m:02d}{d:02d}{h:02d}"
 
     def _date_folder_from_time_suffix(self, time_suffix: str) -> str:
-        """根据 YYYYMMDDHH 与跨天临界点计算存放目录名 YYYYMMDD。"""
+        """根据 YYYYMMDDHH 与跨天临界点计算存放目录：当日临界点及之后→当日；次日临界点前→前一日。"""
+        now = _now_in_tz()
         if not time_suffix or len(time_suffix) < 10:
-            return datetime.now().strftime("%Y%m%d")
+            return now.strftime("%Y%m%d")
         try:
             y, m, d = int(time_suffix[:4]), int(time_suffix[4:6]), int(time_suffix[6:8])
             h = int(time_suffix[8:10])
         except (ValueError, IndexError):
-            return datetime.now().strftime("%Y%m%d")
+            return now.strftime("%Y%m%d")
         if h >= CUTOFF_HOUR:
             return f"{y:04d}{m:02d}{d:02d}"
         dt = datetime(y, m, d) - timedelta(days=1)

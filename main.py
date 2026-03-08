@@ -1,46 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-入口：创建 Chrome WebDriver，运行爬虫后退出。
-执行时以当前时间点作为文件名中的小时（如 09:08 -> 09）。
+按顺序执行完整流程：
+  1. crawl.py      — 抓取并下载数据
+  2. merge_data.py — 合并为一览表 Master{YYYYMMDD}.csv
+  3. calc_car.py   — 计算综合评估并输出 CAR{YYYYMMDD}.xlsx
+  4. plot_car.py   — 根据综合评估表生成欧赔/凯利曲线图
+
+任一步失败则终止，不执行后续步骤。
+用法: python main.py [merge_data / calc_car / plot_car 的目录参数...]
+  不传参数时使用默认（当天 YYYYMMDD）。
+  传参示例: python main.py 20260307
+            python main.py 20260306 20260307 20260308
 """
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-
-from config import BASE_URL, DOWNLOAD_DIR, HEADLESS
-from scraper import ZhiyunScraper
-
-
-def create_driver():
-    """创建 Chrome 驱动，使用 webdriver-manager 自动管理 chromedriver。"""
-    options = webdriver.ChromeOptions()
-    if HEADLESS:
-        options.add_argument("--headless=new")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-
-    prefs = {
-        "download.default_directory": DOWNLOAD_DIR,
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "safebrowsing.enabled": True,
-    }
-    options.add_experimental_option("prefs", prefs)
-
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+import subprocess
+import sys
 
 
 def main():
-    driver = None
-    try:
-        driver = create_driver()
-        scraper = ZhiyunScraper(driver, base_url=BASE_URL)
-        scraper.run()
-    finally:
-        if driver:
-            driver.quit()
+    steps = [
+        ("crawl.py", ["crawl.py"]),
+        ("merge_data.py", ["merge_data.py"] + sys.argv[1:]),
+        ("calc_car.py", ["calc_car.py"] + sys.argv[1:]),
+        ("plot_car.py", ["plot_car.py"] + sys.argv[1:]),
+    ]
+    for name, cmd in steps:
+        print(f"\n>>> 执行: {' '.join(cmd)}\n")
+        ret = subprocess.run([sys.executable] + cmd)
+        if ret.returncode != 0:
+            print(f"\n>>> {name} 退出码 {ret.returncode}，流程已终止。")
+            sys.exit(ret.returncode)
+    print("\n>>> 全部步骤执行完成。\n")
 
 
 if __name__ == "__main__":

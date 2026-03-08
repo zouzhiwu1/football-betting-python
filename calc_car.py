@@ -5,12 +5,14 @@
 D～I 列用 (MAX-MIN)/AVERAGE，J、K、L 列用 VARP(列)*100。输出 CAR{YYYYMMDD}.xlsx。
 依赖：需先对同一目录执行批处理1（merge_data.py）生成一览 CSV。
 
-用法: python calc_car.py <目录1> [目录2 ...]
-  每个目录可为相对路径（如 20260307，基于 DOWNLOAD_DIR）或绝对路径。
-  可一次传入多个目录，逐个生成各目录下的 CAR{YYYYMMDD}.xlsx。
-例如: python calc_car.py 20260307
+用法: python calc_car.py [目录1] [目录2 ...]
+  不传参数时默认为当天 YYYYMMDD（如 20260308）。
+  每个目录可为相对路径（基于 DOWNLOAD_DIR）或绝对路径，可传多个。
+例如: python calc_car.py          （处理当天目录）
+     python calc_car.py 20260307
      python calc_car.py 20260306 20260307 20260308
 """
+import datetime
 import os
 import sys
 
@@ -129,14 +131,13 @@ def _resolve_data_dir(raw_arg: str) -> str:
 
 
 def main():
+    # 未传参数时默认为当天 YYYYMMDD
     if len(sys.argv) < 2:
-        print("用法: python calc_car.py <目录1> [目录2 ...]  （批处理2，与 merge_data.py 分开）")
-        print("  相对路径会基于 DOWNLOAD_DIR 解析；可传入多个目录逐个处理")
-        print("  请先对每个目录执行 merge_data.py 生成一览 CSV")
-        sys.exit(1)
+        dirs = [datetime.date.today().strftime("%Y%m%d")]
+    else:
+        dirs = [d for d in sys.argv[1:] if d.strip()]
 
     project_dir = os.path.dirname(os.path.abspath(__file__))
-    dirs = [d for d in sys.argv[1:] if d.strip()]
     if not dirs:
         print("错误: 请至少指定一个数据目录")
         sys.exit(1)

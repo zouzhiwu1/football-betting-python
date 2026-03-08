@@ -2,14 +2,15 @@
 """
 批处理1（与批处理2 calc_car.py 分开）：将指定目录下的所有 .xls 数据文件
 按文件名排序后合并为一个一览表，输出文件名为 Master{YYYYMMDD}.csv。
-用法: python merge_data.py <数据目录或相对子目录>
-  - 相对路径（如 20260307）会相对于 config.DOWNLOAD_DIR（下载目录）解析
-  - 绝对路径则直接使用
-例如: python merge_data.py 20260307
-     python merge_data.py /Users/zhiwuzou/Documents/足球彩票/北单/20260307
+用法: python merge_data.py [数据目录或相对子目录]
+  - 不传参数时默认为当天日期 YYYYMMDD（如 20260308）
+  - 相对路径会相对于 config.DOWNLOAD_DIR 解析，绝对路径则直接使用
+例如: python merge_data.py          （处理当天目录）
+     python merge_data.py 20260307
 工程目录下必须有 template.xlsx，以其第 1 行和第 2 行作为 CSV 的表头（两行表头）。
 """
 import csv
+import datetime
 import os
 import re
 import sys
@@ -146,13 +147,11 @@ def main():
     _script_path = os.path.abspath(__file__)
     print(f"[merge_data] 正在执行: {_script_path}", flush=True)
 
+    # 未传参数时默认为当天 YYYYMMDD
     if len(sys.argv) < 2:
-        print("用法: python merge_data.py <数据目录或相对子目录>")
-        print("  相对路径（如 20260307）会基于下载目录 DOWNLOAD_DIR 解析")
-        print("例如: python merge_data.py 20260307")
-        sys.exit(1)
-
-    raw_arg = sys.argv[1].strip().rstrip(os.sep)
+        raw_arg = datetime.date.today().strftime("%Y%m%d")
+    else:
+        raw_arg = sys.argv[1].strip().rstrip(os.sep)
     if os.path.isabs(raw_arg):
         data_dir = os.path.abspath(raw_arg)
     else:

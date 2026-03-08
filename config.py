@@ -1,11 +1,19 @@
 """
-爬虫配置。可通过环境变量覆盖：
+爬虫配置。可通过环境变量覆盖（若存在 .env 会先加载）：
   CRAWLER_BASE_URL  页面地址
   CRAWLER_DOWNLOAD_DIR  下载目录
   CRAWLER_CUTOFF_HOUR  跨天时间临界点（时，0～23），默认 12
+  CRAWLER_TIMEZONE  用于“当前时间”的时区（决定下载目录/文件名），默认 Asia/Shanghai
   CRAWLER_HEADLESS  设为 1 则无头模式
+  CRAWLER_DEBUG_LOG_DIR  调试/日志目录（debug_export_page_*.html 等），默认 football-log
 """
 import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 BASE_URL = os.environ.get(
     "CRAWLER_BASE_URL",
@@ -13,11 +21,18 @@ BASE_URL = os.environ.get(
 )
 DOWNLOAD_DIR = os.environ.get(
     "CRAWLER_DOWNLOAD_DIR",
-    "/Users/zhiwuzou/Documents/足球彩票/北单"
+    "/Users/zhiwuzou/Documents/cursor/football-data"
 )
 # 跨天时间临界点（时）：当日该时及之后 → 当日文件夹；次日该时之前 → 前一日文件夹
-CUTOFF_HOUR = int(os.environ.get("CRAWLER_CUTOFF_HOUR", "23"))
+CUTOFF_HOUR = int(os.environ.get("CRAWLER_CUTOFF_HOUR", "12"))
+# 用于“当前时间”的时区（避免服务器 UTC 导致临界点错位）
+TIMEZONE = os.environ.get("CRAWLER_TIMEZONE", "Asia/Shanghai")
 HEADLESS = os.environ.get("CRAWLER_HEADLESS", "1") == "1"
+# 调试/日志目录：调试导出的页面 HTML（debug_export_page_*.html）等
+DEBUG_LOG_DIR = os.environ.get(
+    "CRAWLER_DEBUG_LOG_DIR",
+    "/Users/zhiwuzou/Documents/cursor/football-log"
+)
 
 # 足彩子菜单：目前只抓取「北单」
 ZUCAI_MENU_OPTIONS = ["北单"]
