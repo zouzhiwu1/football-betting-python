@@ -94,6 +94,51 @@ python plot_car.py 20260306 20260307     # 处理多个目录
 
 ---
 
+### 曲线图查询网页（curve_viewer）
+
+**功能**：按日期和球队名（主队 VS 客队）搜索并展示已生成的曲线图。
+
+**用法**：
+
+```bash
+python curve_viewer.py
+```
+
+在浏览器打开 http://127.0.0.1:5000 ，选择或输入日期（YYYYMMDD）、填写球队名，点击「搜索」即可查看匹配的曲线图。数据来源为 `CRAWLER_DOWNLOAD_DIR` 下各日期目录中的 `*_曲线.png`。
+
+**生产部署（服务器）**：推荐使用 **Gunicorn**，不要用 Flask 自带的开发服务器。
+
+| 方式 | 适用场景 |
+|------|----------|
+| `python curve_viewer.py` | 本机开发、临时使用 |
+| `gunicorn ... "curve_viewer:app"` | 服务器正式部署（推荐） |
+| Nginx → Gunicorn | 需要 HTTPS、域名、限流时 |
+
+```bash
+# 安装（已包含在 requirements.txt）
+pip install gunicorn
+
+# 启动（4 个 worker，监听所有网卡 5000 端口；仅本机访问可改为 -b 127.0.0.1:5000）
+gunicorn -w 4 -b 0.0.0.0:5000 "curve_viewer:app"
+```
+
+- `-w 4` 为 worker 数，可按机器 CPU 调整。
+- 需要 HTTPS 或统一入口时，在 Gunicorn 前加 **Nginx** 做反向代理，将请求转发到 `127.0.0.1:5000`，并在 Nginx 配置 SSL、限流等。
+
+**Nginx 反向代理示例**（在 Nginx 的 `server` 中增加）：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:5000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+---
+
 ## 配置
 
 所有配置均可通过**环境变量**覆盖（无需改代码）。若项目根目录存在 `.env` 文件，会先加载其中的变量（需安装 `python-dotenv`，已写在 requirements.txt 中）。
@@ -190,9 +235,9 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
     <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/Users/你的用户名/Documents/cursor/football-log/football-betting-main.log</string>
+  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/你的用户名/Documents/cursor/football-log/football-betting-main.err</string>
+  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.err</string>
 </dict>
 </plist>
 ```
@@ -218,7 +263,7 @@ launchctl unload ~/Library/LaunchAgents/com.football.betting.main.plist
 launchctl load ~/Library/LaunchAgents/com.football.betting.main.plist
 ```
 
-日志输出在 `/Users/zhiwuzou/Documents/cursor/football-log/football-betting-main.log`，错误在 `/Users/zhiwuzou/Documents/cursor/football-log/football-betting-main.err`。请先创建目录：`mkdir -p /Users/zhiwuzou/Documents/cursor/football-log`。
+日志输出在 `/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-main.log`，错误在 `/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-main.err`。日志目录与 config.py 中 `CRAWLER_DEBUG_LOG_DIR` 一致，请先创建：`mkdir -p /Users/zhiwuzou/Documents/cursor/football-betting-log`。
 
 ---
 

@@ -24,8 +24,8 @@
     <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-log/football-betting-main.log</string>
+  <string>/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-main.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-log/football-betting-main.err</string>
+  <string>/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-main.err</string>
 </dict>
 </plist>

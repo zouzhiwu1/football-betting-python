@@ -5,7 +5,7 @@
   CRAWLER_CUTOFF_HOUR  跨天时间临界点（时，0～23），默认 12
   CRAWLER_TIMEZONE  用于“当前时间”的时区（决定下载目录/文件名），默认 Asia/Shanghai
   CRAWLER_HEADLESS  设为 1 则无头模式
-  CRAWLER_DEBUG_LOG_DIR  调试/日志目录（debug_export_page_*.html 等），默认 football-log
+  CRAWLER_DEBUG_LOG_DIR  日志目录（定时任务日志、debug_export_page_*.html 等），默认 football-betting-log
 """
 import os
 
@@ -21,17 +21,17 @@ BASE_URL = os.environ.get(
 )
 DOWNLOAD_DIR = os.environ.get(
     "CRAWLER_DOWNLOAD_DIR",
-    "/Users/zhiwuzou/Documents/cursor/football-data"
+    "/Users/zhiwuzou/Documents/cursor/football-betting-data"
 )
 # 跨天时间临界点（时）：当日该时及之后 → 当日文件夹；次日该时之前 → 前一日文件夹
 CUTOFF_HOUR = int(os.environ.get("CRAWLER_CUTOFF_HOUR", "12"))
 # 用于“当前时间”的时区（避免服务器 UTC 导致临界点错位）
 TIMEZONE = os.environ.get("CRAWLER_TIMEZONE", "Asia/Shanghai")
 HEADLESS = os.environ.get("CRAWLER_HEADLESS", "1") == "1"
-# 调试/日志目录：调试导出的页面 HTML（debug_export_page_*.html）等
+# 日志目录：定时任务 stdout/stderr、调试导出的页面 HTML（debug_export_page_*.html）等
 DEBUG_LOG_DIR = os.environ.get(
     "CRAWLER_DEBUG_LOG_DIR",
-    "/Users/zhiwuzou/Documents/cursor/football-log"
+    "/Users/zhiwuzou/Documents/cursor/football-betting-log"
 )
 
 # 足彩子菜单：目前只抓取「北单」

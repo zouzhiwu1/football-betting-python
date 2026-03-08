@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>曲线图查询</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 1rem;
+      background: #f5f5f5;
+    }
+    h1 { font-size: 1.5rem; color: #333; margin-bottom: 1rem; }
+    .search-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 1rem;
+      background: #fff;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .search-bar label { font-weight: 500; color: #555; }
+    .search-bar input, .search-bar select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    .search-bar input[type="text"] { min-width: 160px; }
+    .search-bar button {
+      padding: 0.5rem 1.25rem;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .search-bar button:hover { background: #1d4ed8; }
+    .search-bar button:disabled { background: #94a3b8; cursor: not-allowed; }
+    .message { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
+    .message.info { background: #e0f2fe; color: #0369a1; }
+    .message.error { background: #fee2e2; color: #b91c1c; }
+    .message.empty { background: #f1f5f9; color: #64748b; }
+    .results {
+      display: grid;
+      gap: 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .card h3 {
+      margin: 0 0 0.75rem 0;
+      font-size: 1.1rem;
+      color: #1e293b;
+    }
+    .card img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <h1>曲线图查询</h1>
+  <div class="search-bar">
+    <label for="date">日期 <span style="color:#b91c1c">*</span></label>
+    <select id="date">
+      <option value="">请选择或输入下方</option>
+    </select>
+    <input type="text" id="dateInput" placeholder="YYYYMMDD" maxlength="8" pattern="\d{8}" title="8位数字如 20260307">
+    <label for="team">球队名 <span style="color:#b91c1c">*</span></label>
+    <input type="text" id="team" placeholder="主队或客队名称（必填）" required>
+    <button type="button" id="btnSearch">搜索</button>
+  </div>
+  <p style="margin:0 0 1rem 0; font-size:0.9rem; color:#64748b;">日期和球队名都需填写才能搜索。</p>
+  <div id="message" class="message" style="display: none;"></div>
+  <div id="results" class="results"></div>
+
+  <script>
+    const dateSelect = document.getElementById('date');
+    const dateInput = document.getElementById('dateInput');
+    const teamInput = document.getElementById('team');
+    const btnSearch = document.getElementById('btnSearch');
+    const messageEl = document.getElementById('message');
+    const resultsEl = document.getElementById('results');
+
+    function showMessage(text, type) {
+      messageEl.textContent = text;
+      messageEl.className = 'message ' + (type || 'info');
+      messageEl.style.display = 'block';
+    }
+
+    function hideMessage() {
+      messageEl.style.display = 'none';
+    }
+
+    function getDate() {
+      const v = dateInput.value.trim() || dateSelect.value;
+      return /^\d{8}$/.test(v) ? v : '';
+    }
+
+    async function loadDates() {
+      try {
+        const r = await fetch('/api/dates');
+        const data = await r.json();
+        const dates = data.dates || [];
+        dateSelect.innerHTML = '<option value="">请选择或输入下方</option>';
+        dates.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d;
+          opt.textContent = d;
+          dateSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn('加载日期列表失败', e);
+      }
+    }
+
+    async function search() {
+      const date = getDate();
+      const team = teamInput.value.trim();
+      if (!date) {
+        showMessage('请选择或输入有效日期（YYYYMMDD）', 'error');
+        return;
+      }
+      if (!team) {
+        showMessage('请填写球队名（主队或客队名称）', 'error');
+        return;
+      }
+      btnSearch.disabled = true;
+      hideMessage();
+      resultsEl.innerHTML = '';
+
+      try {
+        const url = '/api/search?date=' + encodeURIComponent(date) + '&team=' + encodeURIComponent(team);
+        const r = await fetch(url);
+        const data = await r.json();
+        if (data.error) {
+          showMessage(data.error, 'error');
+          return;
+        }
+        const items = data.items || [];
+        if (items.length === 0) {
+          showMessage('该条件下没有找到曲线图。', 'empty');
+          return;
+        }
+        items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          const title = document.createElement('h3');
+          title.textContent = item.home + ' VS ' + item.away;
+          const img = document.createElement('img');
+          img.alt = title.textContent;
+          img.src = '/img/' + item.date + '/' + encodeURIComponent(item.filename);
+          img.loading = 'lazy';
+          card.appendChild(title);
+          card.appendChild(img);
+          resultsEl.appendChild(card);
+        });
+      } catch (e) {
+        showMessage('请求失败：' + e.message, 'error');
+      } finally {
+        btnSearch.disabled = false;
+      }
+    }
+
+    dateSelect.addEventListener('change', function() {
+      dateInput.value = this.value;
+    });
+    dateInput.addEventListener('input', function() {
+      if (this.value.trim()) dateSelect.value = '';
+    });
+    btnSearch.addEventListener('click', search);
+    teamInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') search();
+    });
+
+    loadDates();
+  </script>
+</body>
+</html>
