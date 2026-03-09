@@ -18,10 +18,10 @@ from scraper import ZhiyunScraper
 
 
 def _setup_logging():
-    """配置详细日志到独立文件：crawl{YYYYMMDDHH}.log。"""
+    """配置详细日志到独立文件：crawl_{YYYYMMDDHH}.log。"""
     os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
     time_suffix = datetime.now().strftime("%Y%m%d%H")
-    log_path = os.path.join(DEBUG_LOG_DIR, f"crawl{time_suffix}.log")
+    log_path = os.path.join(DEBUG_LOG_DIR, f"crawl_{time_suffix}.log")
     logger = logging.getLogger("crawl")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()

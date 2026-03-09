@@ -1,7 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-批处理1（与批处理2 calc_car.py 分开）：将指定目录下的所有 .xls 数据文件
+批处理1（与批处理2 calc_car.py 分开）：将指定时间段内的 .xls 数据文件
 按文件名排序后合并为一个一览表，输出文件名为 Master{YYYYMMDD}.csv。
+
+新版本约定：
+- crawl.py 下载文件时只按“自然日”建目录（YYYYMMDD），与临界点无关。
+- merge_data.py 不再按“整天目录”处理，而是接收两个时间点参数：
+    * 起始时间点（含），格式 YYYYMMDDHH
+    * 终止时间点（含），格式 YYYYMMDDHH
+  例如: merge_data.py 2026030812 2026030911
+  在这两个时间点覆盖的日期目录中查找所有时间戳在区间内的 .xls 文件，
+  并合并为一个一览表。
 详细日志写入 logs/merge_data{YYYYMMDDHH}.log。
 用法: python merge_data.py [数据目录或相对子目录]
   - 不传参数时默认为当天日期 YYYYMMDD（如 20260308）
@@ -42,10 +51,10 @@ FILENAME_PATTERN = re.compile(r"^(.+?)\s+VS\s+(.+)(\d{10})\.xls$", re.IGNORECASE
 
 
 def _setup_logging():
-    """配置详细日志到独立文件：merge_data{YYYYMMDDHH}.log。"""
+    """配置详细日志到独立文件：merge_data_{YYYYMMDDHH}.log。"""
     os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
     time_suffix = datetime.datetime.now().strftime("%Y%m%d%H")
-    log_path = os.path.join(DEBUG_LOG_DIR, f"merge_data.py{time_suffix}.log")
+    log_path = os.path.join(DEBUG_LOG_DIR, f"merge_data_{time_suffix}.log")
     logger = logging.getLogger("merge_data")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
@@ -74,6 +83,70 @@ def parse_filename(basename: str):
     yyyymmddhh = m.group(3)
     time_point = yyyymmddhh  # YYYYMMDDHH（10 位）
     return home, away, time_point
+
+
+def _time_point_to_datetime(time_point: str):
+    """将 YYYYMMDDHH 转为 datetime；解析失败返回 None。"""
+    if not time_point or len(time_point) < 10 or not time_point.isdigit():
+        return None
+    try:
+        y = int(time_point[0:4])
+        m = int(time_point[4:6])
+        d = int(time_point[6:8])
+        h = int(time_point[8:10])
+        return datetime.datetime(y, m, d, h, 0, 0)
+    except ValueError:
+        return None
+
+
+def _parse_time_arg(arg: str, name: str, log: logging.Logger):
+    """解析命令行时间参数 YYYYMMDDHH，解析失败则退出。"""
+    if not arg or len(arg) != 10 or not arg.isdigit():
+        log.error("参数 %s 格式错误，应为 10 位数字 YYYYMMDDHH: %s", name, arg)
+        sys.exit(1)
+    dt = _time_point_to_datetime(arg)
+    if dt is None:
+        log.error("参数 %s 无法解析为有效时间: %s", name, arg)
+        sys.exit(1)
+    return dt
+
+
+def _collect_files_in_range(start_dt, end_dt, log: logging.Logger):
+    """
+    在 [start_dt, end_dt] 区间内收集需要合并的 .xls 文件。
+
+    遍历从 start_dt.date() 到 end_dt.date() 之间的每一天目录（DOWNLOAD_DIR/YYYYMMDD），
+    根据文件名中的时间点 YYYYMMDDHH 判断是否落在区间内。
+
+    返回:
+      files: 列表 [(dir_path, fname, home, away, time_point), ...]
+    """
+    files: list[tuple[str, str, str, str, str]] = []
+    cur_date = start_dt.date()
+    end_date = end_dt.date()
+    while cur_date <= end_date:
+        date_str = cur_date.strftime("%Y%m%d")
+        dir_path = os.path.abspath(os.path.join(DOWNLOAD_DIR, date_str))
+        if not os.path.isdir(dir_path):
+            log.info("目录不存在，跳过: %s", dir_path)
+            cur_date += datetime.timedelta(days=1)
+            continue
+        for fname in sorted(os.listdir(dir_path)):
+            if not fname.lower().endswith(".xls"):
+                continue
+            parsed = parse_filename(fname)
+            if not parsed:
+                log.info("跳过（文件名无法解析）: %s", os.path.join(dir_path, fname))
+                continue
+            home, away, time_point = parsed
+            dt = _time_point_to_datetime(time_point)
+            if dt is None:
+                log.info("跳过（时间点无法解析）: %s", os.path.join(dir_path, fname))
+                continue
+            if start_dt <= dt <= end_dt:
+                files.append((dir_path, fname, home, away, time_point))
+        cur_date += datetime.timedelta(days=1)
+    return files
 
 
 def read_xls_data(path: str):
@@ -176,21 +249,41 @@ def main():
     _script_path = os.path.abspath(__file__)
     log.info("[merge_data] 正在执行: %s", _script_path)
 
-    # 未传参数时默认为当天 YYYYMMDD
-    if len(sys.argv) < 2:
-        raw_arg = datetime.date.today().strftime("%Y%m%d")
-    else:
-        raw_arg = sys.argv[1].strip().rstrip(os.sep)
-    if os.path.isabs(raw_arg):
-        data_dir = os.path.abspath(raw_arg)
-    else:
-        data_dir = os.path.abspath(os.path.join(DOWNLOAD_DIR, raw_arg))
-    if not os.path.isdir(data_dir):
-        log.error("目录不存在: %s", data_dir)
+    # 新版本：必须显式传入起始、终止时间点两个参数（YYYYMMDDHH、YYYYMMDDHH）
+    if len(sys.argv) != 3:
+        log.error(
+            "用法: python merge_data.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>，例如: python merge_data.py 2026030812 2026030911"
+        )
         sys.exit(1)
 
-    # 日志写到数据目录，便于在 xls 同目录下查看
-    error_log_path = os.path.join(data_dir, "merge_data_first_error.log")
+    start_arg = sys.argv[1].strip()
+    end_arg = sys.argv[2].strip()
+    start_dt = _parse_time_arg(start_arg, "起始时间", log)
+    end_dt = _parse_time_arg(end_arg, "终止时间", log)
+    if start_dt > end_dt:
+        log.error("起始时间晚于终止时间: %s > %s", start_arg, end_arg)
+        sys.exit(1)
+
+    files = _collect_files_in_range(start_dt, end_dt, log)
+    if not files:
+        log.warning("在区间 [%s, %s] 内没有匹配的 .xls 文件", start_arg, end_arg)
+        sys.exit(0)
+
+    # 输出目录和文件名：放在起始时间所在日期目录下，命名为 Master{YYYYMMDD}.csv
+    logical_date = start_dt.strftime("%Y%m%d")
+    output_dir = os.path.abspath(os.path.join(DOWNLOAD_DIR, logical_date))
+    os.makedirs(output_dir, exist_ok=True)
+    folder_label = logical_date
+    error_log_path = os.path.join(output_dir, "merge_data_first_error.log")
+    log.info(
+        "处理区间 [%s, %s]，起始日期=%s，待处理 .xls 数量: %d",
+        start_arg,
+        end_arg,
+        logical_date,
+        len(files),
+    )
+
+    # 日志写到输出目录，便于在 xls 同目录下查看
     try:
         with open(error_log_path, "w", encoding="utf-8") as f:
             f.write(f"脚本: {_script_path}\n")
@@ -200,18 +293,8 @@ def main():
     # 工程目录：本脚本所在目录
     project_dir = os.path.dirname(os.path.abspath(__file__))
 
-    xls_files = sorted(
-        [f for f in os.listdir(data_dir) if f.lower().endswith(".xls")],
-        key=lambda x: x,
-    )
-    if not xls_files:
-        log.warning("该目录下没有 .xls 文件: %s", data_dir)
-        sys.exit(0)
-
-    folder_name = os.path.basename(data_dir)
-    # 一览表文件名：Master{YYYYMMDD}.csv
-    output_path = os.path.join(data_dir, f"Master{folder_name}.csv")
-    log.info("数据目录: %s, 待处理 .xls 数量: %d", data_dir, len(xls_files))
+    # 一览表文件名：Master{YYYYMMDD}.csv（按起始时间所在日期命名）
+    output_path = os.path.join(output_dir, f"Master{folder_label}.csv")
 
     try:
         header_row1, header_row2 = get_csv_headers(project_dir)
@@ -219,15 +302,10 @@ def main():
         log.error("错误: %s", e)
         sys.exit(1)
 
-    rows = []
+    rows: list[list[str]] = []
     first_fail_done = False
-    for fname in xls_files:
-        parsed = parse_filename(fname)
-        if not parsed:
-            log.info("跳过（文件名无法解析）: %s", fname)
-            continue
-        home, away, time_point = parsed
-        path = os.path.join(data_dir, fname)
+    for dir_path, fname, home, away, time_point in files:
+        path = os.path.join(dir_path, fname)
         data_df, err_msg, tb = read_xls_data(path)
         if data_df is None:
             err = err_msg or "未知错误"
@@ -265,7 +343,7 @@ def main():
         w.writerow(header_row1)
         w.writerow(header_row2)
         w.writerows(rows)
-    log.info("已合并 %d 个文件，共 %d 行 -> %s", len(xls_files), len(rows), output_path)
+    log.info("已合并 %d 个文件，共 %d 行 -> %s", len(files), len(rows), output_path)
 
 
 if __name__ == "__main__":

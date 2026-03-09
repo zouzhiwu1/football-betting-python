@@ -34,10 +34,10 @@ COL_RANGE_VARP = (9, 11)         # J～L
 
 
 def _setup_logging():
-    """配置详细日志到独立文件：calc_car{YYYYMMDDHH}.log。"""
+    """配置详细日志到独立文件：calc_car_{YYYYMMDDHH}.log。"""
     os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
     time_suffix = datetime.datetime.now().strftime("%Y%m%d%H")
-    log_path = os.path.join(DEBUG_LOG_DIR, f"calc_car.py{time_suffix}.log")
+    log_path = os.path.join(DEBUG_LOG_DIR, f"calc_car_{time_suffix}.log")
     logger = logging.getLogger("calc_car")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()

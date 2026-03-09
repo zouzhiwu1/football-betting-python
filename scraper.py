@@ -2,7 +2,11 @@
 """
 智云比分网 竞足/北单/14场 比赛列表爬虫。
 逻辑与 Java 版 ZhiyunScraperService 一致。
-下载文件按跨天临界点存入对应 YYYYMMDD 子目录。
+
+下载方式：
+- 使用 Selenium 进入「足球 → 即时比分 → 足彩 → 北单」，解析每一场比赛；
+- 逐场点击行内的「欧」链接，打开详情页并点击「导出Excel」按钮下载；
+- 下载完成后，将最新的 .xls 文件重命名为「主队 VS 客队{YYYYMMDDHH}.xls」。
 """
 import os
 import re
@@ -467,7 +471,7 @@ class ZhiyunScraper:
                 self._save_debug_page_source(index, home, away)
                 raise ValueError("未找到「导出Excel」按钮")
 
-            # 文件名用本次运行时的当前时间 YYYYMMDDHH（由 run() 传入）；存放目录按临界点
+            # 文件名用本次运行时的当前时间 YYYYMMDDHH（由 run() 传入）；存放目录按日期
             if time_suffix is None:
                 time_suffix = _now_in_tz().strftime("%Y%m%d%H")
             date_folder = self._date_folder_from_time_suffix(time_suffix)
@@ -594,19 +598,20 @@ class ZhiyunScraper:
         return f"{y:04d}{m:02d}{d:02d}{h:02d}"
 
     def _date_folder_from_time_suffix(self, time_suffix: str) -> str:
-        """根据 YYYYMMDDHH 与跨天临界点计算存放目录：当日临界点及之后→当日；次日临界点前→前一日。"""
+        """
+        根据 YYYYMMDDHH 返回“自然日”目录 YYYYMMDD。
+
+        新版本约定：下载文件的存放目录仅按日期区分，与跨天临界点无关。
+        临界点只用于后续 merge_data 等统计脚本按时间段切分数据。
+        """
         now = _now_in_tz()
-        if not time_suffix or len(time_suffix) < 10:
+        if not time_suffix or len(time_suffix) < 8:
             return now.strftime("%Y%m%d")
         try:
             y, m, d = int(time_suffix[:4]), int(time_suffix[4:6]), int(time_suffix[6:8])
-            h = int(time_suffix[8:10])
         except (ValueError, IndexError):
             return now.strftime("%Y%m%d")
-        if h >= CUTOFF_HOUR:
-            return f"{y:04d}{m:02d}{d:02d}"
-        dt = datetime(y, m, d) - timedelta(days=1)
-        return dt.strftime("%Y%m%d")
+        return f"{y:04d}{m:02d}{d:02d}"
 
     def _rename_latest_download_in_dir(
         self, home, away, target_dir: str, before_files: set, time_suffix: str
