@@ -9,6 +9,7 @@
   CRAWLER_HEADLESS  设为 1 则无头模式
   CRAWLER_DEBUG_LOG_DIR  日志目录（定时任务日志、debug_export_page_*.html 等），默认 football-betting-log
   CRAWLER_LOG_RETENTION_DAYS  日志保留天数，超过此天数的日志文件将被删除，默认 7
+  CRAWLER_DEBUG_MAX_MATCHES  调试时最多抓取场数，0 表示不限制；设为 3 可快速跑通 main 流程验证
 """
 import os
 
@@ -49,6 +50,8 @@ DEBUG_LOG_DIR = os.environ.get(
 )
 # 日志保留天数：crawl/merge_data/calc_car/plot_car 执行前会删除超过此天数的日志文件
 LOG_RETENTION_DAYS = int(os.environ.get("CRAWLER_LOG_RETENTION_DAYS", "7"))
+# 调试：最多抓取场数，0=不限制；设为 3 时只抓 3 场即结束，便于快速验证 main.py 全流程
+DEBUG_MAX_MATCHES = int(os.environ.get("CRAWLER_DEBUG_MAX_MATCHES", "0"))
 
 # 足彩子菜单：目前只抓取「北单」
 ZUCAI_MENU_OPTIONS = ["北单"]

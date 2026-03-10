@@ -5,8 +5,9 @@
 
 下载方式：
 - 使用 Selenium 进入「足球 → 即时比分 → 足彩 → 北单」，解析每一场比赛；
-- 逐场点击行内的「欧」链接，打开详情页并点击「导出Excel」按钮下载；
-- 下载完成后，将最新的 .xls 文件重命名为「主队 VS 客队{YYYYMMDDHH}.xls」。
+- 对每场比赛，点击行内的「欧」链接，打开详情页；
+- 在详情页中点击「导出Excel」按钮，由浏览器下载 .xls；
+- 将 .xls 文件重命名为「主队 VS 客队{YYYYMMDDHH}.xls」。
 """
 import os
 import re
@@ -30,6 +31,7 @@ from config import (
     DOWNLOAD_DIR,
     DEBUG_LOG_DIR,
     CUTOFF_HOUR,
+    DEBUG_MAX_MATCHES,
     ZUCAI_MENU_OPTIONS,
     COL_DATE,
     COL_TIME,
@@ -97,6 +99,9 @@ class ZhiyunScraper:
                 away = self._get_cell_text(row, COL_AWAY)
                 print(f"{i}. {home} vs {away}")
                 self._download_excel_for_row(wait, row, i, home, away, time_suffix=self._run_time_suffix)
+                if DEBUG_MAX_MATCHES and i >= DEBUG_MAX_MATCHES:
+                    print(f"[调试] 已抓取 {DEBUG_MAX_MATCHES} 场，结束抓取。")
+                    break
             print()
 
     def _hover_zucai_then_click_option(self, wait, option_text):
@@ -378,6 +383,10 @@ class ZhiyunScraper:
             except Exception:
                 pass
             time.sleep(2.5)  # 详情页可能较慢，多等一会
+
+            # 之前尝试过在详情页直接拼出 ExportExcelNew.aspx 的 URL 再用 requests 下载，
+            # 但实际运行中返回了站内 404 页面（虽然 HTTP 状态码为 200），导致保存的 xls 无法打开。
+            # 为保证数据正确性，这里暂时停用该优化，统一回退到浏览器点击「导出Excel」的稳定方案。
 
             wait_export = WebDriverWait(self.driver, 5)
             # 导出按钮：优先用页面实际 id（debug HTML 中为 id="downobj"）
