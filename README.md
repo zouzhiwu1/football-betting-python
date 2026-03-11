@@ -30,11 +30,27 @@ pip install -r requirements.txt
 
 ## 运行
 
-本仓库**不启动任何 Web 服务**，仅由**定时任务**调用，执行完整流程（抓取 → 合并 → 计算 → 曲线图）：
+本仓库**不启动任何 Web 服务**，仅由**定时任务**或手工命令调用，执行完整流程（抓取 → 合并 → 计算 → 曲线图）。
+
+### 1）主流程入口：main.py
 
 ```bash
+# 自动按当前时间和跨天临界点计算区间
 python main.py
+
+# 手工指定时间区间
+python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
+
+- 无参数时，`main.py` 会根据当前时间和 `config.CUTOFF_HOUR` 计算一个 **24 小时的逻辑区间 [start,end]**：
+  - 当前时间在当日 `CUTOFF_HOUR` 之前：`start = 昨天 CUTOFF_HOUR`，`end = 今天 CUTOFF_HOUR-1`；
+  - 当前时间在当日 `CUTOFF_HOUR` 及之后：`start = 今天 CUTOFF_HOUR`，`end = 明天 CUTOFF_HOUR-1`。
+- 显式传入 `<起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>` 时，会直接以该区间作为 [start,end]。
+- 之后 `main.py` 会依次调用：
+  - `crawl.py start end`
+  - `merge_data.py start end`
+  - `calc_car.py start end`
+  - `plot_car.py start end`
 
 也可单独执行各步骤，见下文「脚本说明」。曲线图查询功能已迁移至 **football-betting-platform**，请在该项目中启动服务并访问「曲线图查询」页面。
 
@@ -44,30 +60,31 @@ python main.py
 
 **功能**：打开智云比分页，进入「足球」→「足彩」下的北单等入口，等待表格刷新后，逐场点击导出并下载对应的 `.xls` 文件。文件按配置的下载目录与跨天临界点保存到子目录 `{YYYYMMDD}/`，文件名含主客队与时间点（如 `主队 VS 客队2026030807.xls`）。
 
-**用法**：
+**用法**（仅接收两个时间点参数，形式与其它批处理脚本一致）：
 
 ```bash
-python crawl.py
+python crawl.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
-无参数，依赖 `config.py` / 环境变量中的 `CRAWLER_DOWNLOAD_DIR`、`CRAWLER_CUTOFF_HOUR`、`CRAWLER_TIMEZONE` 等。
+当前版本中，crawl 实际仍按“执行当下的实时盘口”抓取，时间参数主要用于：
+
+- 与 `main.py / merge_data.py / calc_car.py / plot_car.py` 保持一致的调用方式；
+- 在日志中标记本次抓取对应的逻辑时间区间，便于排查。
 
 ---
 
 ### merge_data.py — 合并一览表
 
-**功能**：将指定日期目录下的所有 `.xls` 数据文件按文件名排序后合并为一张一览表，输出 `Master{YYYYMMDD}.csv`。表头两行来自工程目录下的 `template.xlsx` 第 1、2 行；数据列为 C/D/E/F/G/H/L/M/N 等。
+**功能**：在指定时间区间 `[start,end]` 内，遍历覆盖到的日期目录 `DOWNLOAD_DIR/{YYYYMMDD}/`，根据文件名中的时间点 `YYYYMMDDHH` 过滤出在区间内的 `.xls` 文件，按文件名排序后合并为一张一览表，输出 `Master{YYYYMMDD}.csv`。表头两行来自工程目录下的 `template.xlsx` 第 1、2 行；数据列为 C/D/E/F/G/H/L/M/N 等。
 
-**用法**：
+**用法**（仅接收两个时间点参数）：
 
 ```bash
-python merge_data.py                    # 处理当天日期目录（基于 DOWNLOAD_DIR）
-python merge_data.py 20260307           # 处理 20260307 目录（相对路径基于 DOWNLOAD_DIR）
-python merge_data.py /path/to/20260307  # 绝对路径
+python merge_data.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
-- 不传参数时默认为当天 `YYYYMMDD`。
-- 目录可为相对路径（相对于 `config.DOWNLOAD_DIR`）或绝对路径。
+- 例如：`python merge_data.py 2026030812 2026030911`。
+- 输出文件放在起始时间所在日期目录下：`DOWNLOAD_DIR/{start日期}/Master{start日期}.csv`。
 - 工程目录下需有 `template.xlsx`。
 
 ---
@@ -76,17 +93,14 @@ python merge_data.py /path/to/20260307  # 绝对路径
 
 **功能**：在 merge_data 生成的一览表基础上，按「主队、客队、时间点」分组，对 D～L 列计算综合评估值：D～I 列用 `(MAX-MIN)/AVERAGE`，J、K、L 列用 `VARP(列)*100`，输出 `CAR{YYYYMMDD}.xlsx`。
 
-**用法**：
+**用法**（仅接收两个时间点参数）：
 
 ```bash
-python calc_car.py                      # 处理当天目录
-python calc_car.py 20260307             # 处理 20260307
-python calc_car.py 20260306 20260307 20260308   # 处理多个目录
+python calc_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
-- 不传参数时默认为当天 `YYYYMMDD`。
-- 可传多个目录（相对路径基于 `DOWNLOAD_DIR` 或绝对路径）。
-- 依赖：同一目录下需已存在 `Master{YYYYMMDD}.csv`（即先运行 merge_data.py）；工程目录下需有 `template.xlsx`。
+- 例如：`python calc_car.py 2026030812 2026030911` 会读取 `DOWNLOAD_DIR/20260308/Master20260308.csv`，在 `REPORT_DIR/20260308/` 下生成 `CAR20260308.xlsx`。
+- 依赖：`DOWNLOAD_DIR/{YYYYMMDD}/` 下需已存在 `Master{YYYYMMDD}.csv`（即先运行 `merge_data.py`）；工程目录下需有 `template.xlsx`。
 
 ---
 
@@ -94,17 +108,14 @@ python calc_car.py 20260306 20260307 20260308   # 处理多个目录
 
 **功能**：根据综合评估表 `CAR{YYYYMMDD}.xlsx` 为每场比赛生成一张图，包含两个子图：**欧赔指数曲线图**（主/平/客三条曲线，第 1 节点为初指 D/E/F，其余节点为各时间点即时盘 G/H/I）、**凯利指数曲线图**（主/平/客三条曲线，X 轴为时间点 C，Y 轴为 J/K/L）。曲线节点数量由表中该场比赛的时间点数量决定，不固定。详见 design.md 第 3.3 节。
 
-**用法**：
+**用法**（仅接收两个时间点参数）：
 
 ```bash
-python plot_car.py                      # 处理当天目录
-python plot_car.py 20260307              # 处理 20260307
-python plot_car.py 20260306 20260307     # 处理多个目录
+python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
-- 参数与 merge_data.py 一致：不传参数时默认为当天 `YYYYMMDD`；可传多个目录（相对路径基于 DOWNLOAD_DIR）。
-- 输出图片保存在对应数据目录下，文件名：`{主队}_VS_{客队}_曲线.png`。
-- 依赖：同一目录下需已存在 `CAR{YYYYMMDD}.xlsx`（即先运行 calc_car.py）。
+- 输出图片保存在对应报告目录 `REPORT_DIR/{YYYYMMDD}/` 下，文件名：`{主队}_VS_{客队}_曲线.png`。
+- 依赖：`REPORT_DIR/{YYYYMMDD}/` 下需已存在 `CAR{YYYYMMDD}.xlsx`（即先运行 `calc_car.py`）。
 
 ---
 
@@ -120,7 +131,7 @@ python plot_car.py 20260306 20260307     # 处理多个目录
 | `CRAWLER_BASE_URL` | 智云比分页面地址 | `https://live.nowscore.com/2in1.aspx` |
 | `CRAWLER_DOWNLOAD_DIR` | 下载目录：crawl 的 .xls、merge_data 的 Master*.csv 均在此目录下按 YYYYMMDD 子目录存放 | 默认 `WORK_SPACE/football-betting-data` |
 | `CRAWLER_REPORT_DIR` | 报告目录：calc_car 的 CAR*.xlsx、plot_car 的 *_曲线.png 写入此目录下对应的 YYYYMMDD 子目录 | 默认 `WORK_SPACE/football-betting-report` |
-| `CRAWLER_CUTOFF_HOUR` | 跨天临界点（0～23 时）。该时及之后 → 当日文件夹；该时之前 → 前一日文件夹 | `12` |
+| `CRAWLER_CUTOFF_HOUR` | 跨天临界点（0～23 时）。该时及之后 → 当日文件夹；该时之前 → 前一日文件夹；`main.py` 也据此划分 24 小时逻辑区间 | `12` |
 | `CRAWLER_TIMEZONE` | 用于“当前时间”的时区（决定下载目录/文件名） | `Asia/Tokyo` |
 | `CRAWLER_HEADLESS` | `1` 无头模式，`0` 有浏览器界面 | `1` |
 
@@ -149,7 +160,7 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
 
 建议使用**操作系统自带的定时任务**在以下整点自动执行 `python main.py`（抓取 → 合并 → 计算 → 曲线图）：
 
-**触发时间（每天）**：2、4、6、15、17、19、21、23 点。
+**触发时间（每天）**：2、4、6、13、15、17、19、21、23 点。
 
 下面按系统说明如何配置。请将示例中的 **项目目录**、**Python 路径** 替换为你本机的实际路径。
 
@@ -189,11 +200,11 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
   <string>com.football.betting.pipeline</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/你的用户名/Documents/cursor/football-betting-pipeline/.venv/bin/python</string>
+    <string>{WORKSPACE}/football-betting-pipeline/.venv/bin/python</string>
     <string>main.py</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/你的用户名/Documents/cursor/football-betting-pipeline</string>
+  <string>{WORKSPACE}/football-betting-pipeline</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
@@ -207,9 +218,9 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
     <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.log</string>
+  <string>{WORKSPACE}/football-betting-log/football-betting-main.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.err</string>
+  <string>{WORKSPACE}/football-betting-log/football-betting-main.err</string>
 </dict>
 </plist>
 ```
@@ -242,20 +253,20 @@ launchctl load ~/Library/LaunchAgents/com.football.betting.pipeline.plist
 ### Linux（cron）
 
 1. 编辑当前用户 crontab：`crontab -e`。
-2. 添加一行（整点 2、4、6、15、17、19、21、23 各执行一次）：
+2. 添加一行（整点 2、4、6、13、15、17、19、21、23 各执行一次）：
 
 ```cron
-0 2,4,6,15,17,19,21,23 * * * /path/to/football-betting-pipeline/.venv/bin/python /path/to/football-betting-pipeline/main.py
+0 2,4,6,13,15,17,19,21,23 * * * /path/to/football-betting-pipeline/.venv/bin/python /path/to/football-betting-pipeline/main.py
 ```
 
 或将 `python` 和 `main.py` 拆开，并保证在项目目录下执行：
 
 ```cron
-0 2,4,6,15,17,19,21,23 * * * cd /path/to/football-betting-pipeline && .venv/bin/python main.py
+0 2,4,6,13,15,17,19,21,23 * * * cd /path/to/football-betting-pipeline && .venv/bin/python main.py
 ```
 
 3. 将 `/path/to/football-betting-pipeline` 替换为实际项目根目录；若未使用虚拟环境，改为系统 `python3` 路径。
-4. 保存退出。cron 会按系统时区在每天 02:00、04:00、06:00、15:00、17:00、19:00、21:00、23:00 执行。
+4. 保存退出。cron 会按系统时区在每天 02:00、04:00、06:00、13:00、15:00、17:00、19:00、21:00、23:00 执行。
 
 **查看日志**：若未重定向，cron 输出会发到用户邮件；可改为 `... main.py >> /tmp/football-crawler.log 2>&1` 便于排查。
 
@@ -290,8 +301,8 @@ python3 -m venv .venv
 ```bash
 git remote -v
 # 将 origin 指向新仓库名（替换为你的用户名/组织名）
-git remote set-url origin https://github.com/你的用户名/football-betting-pipeline.git
-# 或 SSH：git remote set-url origin git@github.com:你的用户名/football-betting-pipeline.git
+git remote set-url origin https://github.com/{name}/football-betting-pipeline.git
+# 或 SSH：git remote set-url origin git@github.com:{name}/football-betting-pipeline.git
 ```
 
 **5. macOS 定时任务**（若已配置 launchd）

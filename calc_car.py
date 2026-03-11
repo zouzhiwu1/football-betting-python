@@ -6,12 +6,11 @@ D～I 列用 (MAX-MIN)/AVERAGE，J、K、L 列用 VARP(列)*100。输出 CAR{YYY
 详细日志写入 logs/calc_car{YYYYMMDDHH}.log。
 依赖：需先对同一目录执行批处理1（merge_data.py）生成一览 CSV。
 
-用法: python calc_car.py [目录1] [目录2 ...]
-  不传参数时默认为当天 YYYYMMDD（如 20260308）。
-  每个目录可为相对路径（基于 DOWNLOAD_DIR）或绝对路径，可传多个。
-例如: python calc_car.py          （处理当天目录）
-     python calc_car.py 20260307
-     python calc_car.py 20260306 20260307 20260308
+用法（与 merge_data.py 参数形式保持一致，仅接收两个时间点参数）:
+  python calc_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+
+说明：
+- 实际计算的逻辑日期与 merge_data.py 一致：使用起始时间所在日期 YYYYMMDD。
 """
 import datetime
 import logging
@@ -161,35 +160,34 @@ def main():
     removed = delete_old_logs(DEBUG_LOG_DIR, days=LOG_RETENTION_DAYS)
     if removed:
         log.info("已删除 %d 个超过 %d 天的日志文件: %s", len(removed), LOG_RETENTION_DAYS, removed)
-    # 未传参数时默认为当天 YYYYMMDD
-    if len(sys.argv) < 2:
-        dirs = [datetime.date.today().strftime("%Y%m%d")]
-    else:
-        dirs = [d for d in sys.argv[1:] if d.strip()]
 
-    project_dir = os.path.dirname(os.path.abspath(__file__))
-    if not dirs:
-        log.error("请至少指定一个数据目录")
+    args = sys.argv[1:]
+    if len(args) != 2 or not all(len(a) == 10 and a.isdigit() for a in args):
+        log.error(
+            "用法: python calc_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>，例如: python calc_car.py 2026031012 2026031111"
+        )
         sys.exit(1)
 
-    log.info("待处理目录: %s", dirs)
-    failed = 0
-    for raw_arg in dirs:
-        data_dir = _resolve_data_dir(raw_arg)
-        if not os.path.isdir(data_dir):
-            log.error("目录不存在: %s", data_dir)
-            failed += 1
-            continue
-        try:
-            log.info("处理目录: %s", data_dir)
-            run(data_dir, project_dir)
-        except FileNotFoundError as e:
-            log.error("[%s] %s", data_dir, e)
-            failed += 1
-        except ValueError as e:
-            log.error("[%s] %s", data_dir, e)
-            failed += 1
-    if failed:
+    start_arg, end_arg = args
+    logical_date = start_arg[:8]
+    log.info(
+        "收到时间区间参数 [%s, %s]，将按逻辑日期 %s 计算 CAR。",
+        start_arg,
+        end_arg,
+        logical_date,
+    )
+
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = _resolve_data_dir(logical_date)
+    if not os.path.isdir(data_dir):
+        log.error("目录不存在: %s", data_dir)
+        sys.exit(1)
+
+    try:
+        log.info("处理目录: %s", data_dir)
+        run(data_dir, project_dir)
+    except (FileNotFoundError, ValueError) as e:
+        log.error("[%s] %s", data_dir, e)
         sys.exit(1)
 
 

@@ -12,9 +12,13 @@
 - 详细流程日志写入 DEBUG_LOG_DIR/main_{YYYYMMDDHH}.log（按小时分文件，带日期时间）。
 - 若通过 launchd 等重定向 stdout/stderr，则仍可在系统指定的 log/err 文件中看到部分输出。
 
-用法: python main.py
-  - 无参数：按当前时间自动计算本次统计区间 [start,end]（基于固定触发时刻），
-    然后依次执行 crawl.py、merge_data.py start end、calc_car.py {start日期}、plot_car.py {start日期}。
+用法:
+  python main.py
+    - 无参数：按当前时间和跨天临界点 CUTOFF_HOUR 自动计算本次统计区间 [start,end]，
+      然后依次执行 crawl.py、merge_data.py start end、calc_car.py start end、plot_car.py start end。
+
+  python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+    - 显式指定本次统计区间 [start,end]，直接传递给各批处理脚本。
 """
 import logging
 import os
@@ -22,7 +26,7 @@ from datetime import datetime, timedelta
 import subprocess
 import sys
 
-from config import DEBUG_LOG_DIR, LOG_RETENTION_DAYS
+from config import DEBUG_LOG_DIR, LOG_RETENTION_DAYS, CUTOFF_HOUR
 from log_cleanup import delete_old_logs
 
 
@@ -52,51 +56,26 @@ def _setup_logging():
     return logger
 
 
-def _compute_time_window(now: datetime):
+def _compute_default_time_window(now: datetime):
     """
     根据当前时间计算本次统计区间 [start_dt, end_dt]（闭区间，按小时）。
 
-    固定触发时刻为：2,4,6,15,17,19,21,23 点。
-
-    规则：
-    - 若当前小时正好是触发时刻之一（定时任务按点执行）：
-        end = 当前小时，对应触发时刻；
-        start = 上一个触发时刻（可能在同一天或前一天）。
-    - 若当前小时不是触发时刻（你手工在任意时间执行 main.py）：
-        end = 当前小时（向下取整，不含分钟）；
-        start = 最近一个 <= 当前小时的触发时刻；若当天还没到任何触发时刻，则取“前一天的 23 点”。
+    规则（以 CUTOFF_HOUR 作为跨天临界点）：
+    - 若当前时间在当日 CUTOFF_HOUR 之前：
+        start = 昨天 CUTOFF_HOUR
+        end   = start + 23 小时（即今天 CUTOFF_HOUR-1）
+    - 若当前时间在当日 CUTOFF_HOUR 及之后：
+        start = 今天 CUTOFF_HOUR
+        end   = start + 23 小时（即明天 CUTOFF_HOUR-1）
     """
-    TRIGGER_HOURS = [2, 4, 6, 15, 17, 19, 21, 23]
-    TRIGGER_HOURS.sort()
-
-    now_hour = now.hour
-
-    # 情况一：当前小时正好是触发时刻（定时执行）
-    if now_hour in TRIGGER_HOURS:
-        end_hour = now_hour
-        end_date = now.date()
-        idx = TRIGGER_HOURS.index(end_hour)
-        if idx > 0:
-            start_hour = TRIGGER_HOURS[idx - 1]
-            start_date = end_date
-        else:
-            start_hour = TRIGGER_HOURS[-1]
-            start_date = end_date - timedelta(days=1)
+    today = now.date()
+    if now.hour < CUTOFF_HOUR:
+        start_day = today - timedelta(days=1)
     else:
-        # 情况二：手工在任意时间执行，end 用当前小时，start 用最近一个 <= 当前小时的触发时刻
-        end_hour = now_hour
-        end_date = now.date()
-        candidates = [h for h in TRIGGER_HOURS if h <= now_hour]
-        if candidates:
-            start_hour = max(candidates)
-            start_date = end_date
-        else:
-            # 当前时间在当天第一触发时刻之前：回退到前一天 23 点
-            start_hour = TRIGGER_HOURS[-1]
-            start_date = (now - timedelta(days=1)).date()
+        start_day = today
 
-    start_dt = datetime(start_date.year, start_date.month, start_date.day, start_hour)
-    end_dt = datetime(end_date.year, end_date.month, end_date.day, end_hour)
+    start_dt = datetime(start_day.year, start_day.month, start_day.day, CUTOFF_HOUR)
+    end_dt = start_dt + timedelta(hours=23)
     return start_dt, end_dt
 
 
@@ -111,12 +90,43 @@ def main():
             removed,
         )
 
-    # 计算本次统计区间 [start,end]，并生成传给各脚本的参数
-    now = datetime.now()
-    start_dt, end_dt = _compute_time_window(now)
+    args = sys.argv[1:]
+
+    # 调用形式：
+    #   python main.py
+    #   python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+    if len(args) == 0:
+        # 无参数：使用当前时间，通过 _compute_default_time_window 计算 [start,end]
+        now = datetime.now()
+        start_dt, end_dt = _compute_default_time_window(now)
+    elif len(args) == 2 and all(len(a) == 10 and a.isdigit() for a in args):
+        # 显式指定 [start,end]，直接解析
+        start_arg_raw, end_arg_raw = args
+        try:
+            start_dt = datetime.strptime(start_arg_raw, "%Y%m%d%H")
+            end_dt = datetime.strptime(end_arg_raw, "%Y%m%d%H")
+        except ValueError:
+            log.error(
+                "时间参数格式错误，应为 YYYYMMDDHH，例如: python main.py 2026031012 2026031111"
+            )
+            sys.exit(1)
+        if start_dt > end_dt:
+            log.error(
+                "起始时间晚于终止时间: %s > %s",
+                start_arg_raw,
+                end_arg_raw,
+            )
+            sys.exit(1)
+    else:
+        log.error(
+            "用法:\n  python main.py\n  python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>"
+        )
+        sys.exit(1)
+
+    logical_date = start_dt.strftime("%Y%m%d")  # 与 merge_data.py 的输出日期一致
+
     start_arg = start_dt.strftime("%Y%m%d%H")
     end_arg = end_dt.strftime("%Y%m%d%H")
-    logical_date = start_dt.strftime("%Y%m%d")  # 与 merge_data.py 的输出日期一致
 
     log.info(
         "本次统计区间: [%s, %s]，逻辑日期=%s",
@@ -126,10 +136,10 @@ def main():
     )
 
     steps = [
-        ("crawl.py", ["crawl.py"]),
+        ("crawl.py", ["crawl.py", start_arg, end_arg]),
         ("merge_data.py", ["merge_data.py", start_arg, end_arg]),
-        ("calc_car.py", ["calc_car.py", logical_date]),
-        ("plot_car.py", ["plot_car.py", logical_date]),
+        ("calc_car.py", ["calc_car.py", start_arg, end_arg]),
+        ("plot_car.py", ["plot_car.py", start_arg, end_arg]),
     ]
     for name, cmd in steps:
         log.info(">>> 执行: %s", " ".join(cmd))

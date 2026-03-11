@@ -40,6 +40,14 @@ REPORT_DIR = os.environ.get(
 )
 # 跨天时间临界点（时）：当日该时及之后 → 当日文件夹；次日该时之前 → 前一日文件夹
 CUTOFF_HOUR = int(os.environ.get("CRAWLER_CUTOFF_HOUR", "12"))
+# 主流程触发小时（整点，0～23）。main.py 依此计算每次统计区间 [start,end]。
+# 如需调整定时任务时间，只需修改此处或设置环境变量 CRAWLER_TRIGGER_HOURS（逗号分隔）。
+TRIGGER_HOURS = [
+    int(h)
+    for h in os.environ.get("CRAWLER_TRIGGER_HOURS", "2,4,6,13,15,17,19,21,23").split(",")
+    if h.strip()
+]
+TRIGGER_HOURS.sort()
 # 用于“当前时间”的时区（避免服务器 UTC 导致临界点错位）
 TIMEZONE = os.environ.get("CRAWLER_TIMEZONE", "Asia/Tokyo")
 HEADLESS = os.environ.get("CRAWLER_HEADLESS", "1") == "1"

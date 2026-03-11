@@ -10,10 +10,13 @@
   其余节点为各时间点即时盘（G/H/I 列），节点数 = 1 + 时间点个数。X 轴为「初指」+ 第 C 列各时间点。
 - 凯利指数曲线图：主、平、客三条曲线。X 轴为时间（第 C 列），Y 轴为 J/K/L 列，节点数 = 时间点个数。
 
-用法: python plot_car.py [数据目录或相对子目录] ...
-  参数与 merge_data.py 一致：不传参数时默认为当天日期 YYYYMMDD（如 20260308）。
-  相对路径相对于 config.DOWNLOAD_DIR 解析，绝对路径则直接使用。可传多个目录。
-  输出图片保存在对应数据目录下，文件名：{主队}_VS_{客队}_曲线.png
+用法（与 merge_data.py 参数形式保持一致，仅接收两个时间点参数）:
+  python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+
+说明：
+- 实际使用的逻辑日期与 merge_data.py 一致：使用起始时间所在日期 YYYYMMDD。
+- 输出图片保存在对应报告目录 REPORT_DIR/{YYYYMMDD}/ 下，
+  文件名：{主队}_VS_{客队}_曲线.png
 """
 import datetime
 import logging
@@ -129,8 +132,9 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         away_str = str(away).strip()
         title = f"{home_str} VS {away_str}"
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-        fig.suptitle(title, fontsize=12)
+        # 为手机端展示优化：偏竖屏比例、较高分辨率，便于在窄屏上查看
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 10))
+        fig.suptitle(title, fontsize=14)
 
         # ---------- 欧赔指数曲线图 ----------
         # 第 1 节点：初指 D/E/F；第 2～N+1 节点：即时 G/H/I（N = 该场比赛时间点数量，由表决定）
@@ -145,26 +149,50 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         y_draw = [init_draw] + grp[data.columns[COL_LIVE_DRAW]].tolist()
         y_away = [init_away] + grp[data.columns[COL_LIVE_AWAY]].tolist()
 
-        ax1.plot(x_pos, y_main, "o-", label="主", color="C0")
-        ax1.plot(x_pos, y_draw, "s-", label="平", color="C1")
-        ax1.plot(x_pos, y_away, "^-", label="客", color="C2")
+        ax1.plot(x_pos, y_main, "o-", label="主", color="C0", linewidth=2, markersize=5)
+        ax1.plot(x_pos, y_draw, "s-", label="平", color="C1", linewidth=2, markersize=5)
+        ax1.plot(x_pos, y_away, "^-", label="客", color="C2", linewidth=2, markersize=5)
         ax1.set_xticks(x_pos)
         ax1.set_xticklabels(x_labels, rotation=45, ha="right")
-        ax1.set_ylabel("评估值")
-        ax1.set_title("欧赔指数曲线图")
+        ax1.set_ylabel("评估值", fontsize=11)
+        ax1.set_title("欧赔指数曲线图", fontsize=12)
         ax1.legend(loc="best")
         ax1.grid(True, alpha=0.3)
 
         # ---------- 凯利指数曲线图 ----------
         x_kelly = list(range(len(times)))
-        ax2.plot(x_kelly, grp[data.columns[COL_KELLY_MAIN]], "o-", label="主", color="C0")
-        ax2.plot(x_kelly, grp[data.columns[COL_KELLY_DRAW]], "s-", label="平", color="C1")
-        ax2.plot(x_kelly, grp[data.columns[COL_KELLY_AWAY]], "^-", label="客", color="C2")
+        ax2.plot(
+            x_kelly,
+            grp[data.columns[COL_KELLY_MAIN]],
+            "o-",
+            label="主",
+            color="C0",
+            linewidth=2,
+            markersize=5,
+        )
+        ax2.plot(
+            x_kelly,
+            grp[data.columns[COL_KELLY_DRAW]],
+            "s-",
+            label="平",
+            color="C1",
+            linewidth=2,
+            markersize=5,
+        )
+        ax2.plot(
+            x_kelly,
+            grp[data.columns[COL_KELLY_AWAY]],
+            "^-",
+            label="客",
+            color="C2",
+            linewidth=2,
+            markersize=5,
+        )
         ax2.set_xticks(x_kelly)
         ax2.set_xticklabels(times, rotation=45, ha="right")
-        ax2.set_xlabel("时间点")
-        ax2.set_ylabel("凯利指数")
-        ax2.set_title("凯利指数曲线图")
+        ax2.set_xlabel("时间点", fontsize=11)
+        ax2.set_ylabel("凯利指数", fontsize=11)
+        ax2.set_title("凯利指数曲线图", fontsize=12)
         ax2.legend(loc="best")
         ax2.grid(True, alpha=0.3)
 
@@ -172,7 +200,8 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         os.makedirs(report_dir, exist_ok=True)
         safe_name = f"{_safe_filename(home_str)}_VS_{_safe_filename(away_str)}_曲线.png"
         out_path = os.path.join(report_dir, safe_name)
-        plt.savefig(out_path, dpi=120, bbox_inches="tight")
+        # 提升 dpi 以在手机端放大时保持清晰
+        plt.savefig(out_path, dpi=200, bbox_inches="tight")
         plt.close()
         log.info("  已生成: %s", out_path)
         count += 1
@@ -194,39 +223,39 @@ def main():
     if removed:
         log.info("已删除 %d 个超过 %d 天的日志文件: %s", len(removed), LOG_RETENTION_DAYS, removed)
     _setup_chinese_font()
-    if len(sys.argv) < 2:
-        dirs = [datetime.date.today().strftime("%Y%m%d")]
-    else:
-        dirs = [d for d in sys.argv[1:] if d.strip()]
+
+    args = sys.argv[1:]
+    if len(args) != 2 or not all(len(a) == 10 and a.isdigit() for a in args):
+        log.error(
+            "用法: python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>，例如: python plot_car.py 2026031012 2026031111"
+        )
+        sys.exit(1)
+
+    start_arg, end_arg = args
+    logical_date = start_arg[:8]
+    log.info(
+        "收到时间区间参数 [%s, %s]，将按逻辑日期 %s 生成曲线图。",
+        start_arg,
+        end_arg,
+        logical_date,
+    )
 
     project_dir = os.path.dirname(os.path.abspath(__file__))
-    if not dirs:
-        log.error("请至少指定一个数据目录")
+    data_dir = _resolve_data_dir(logical_date)
+    if not os.path.isdir(data_dir):
+        log.error("目录不存在: %s", data_dir)
         sys.exit(1)
 
-    log.info("待处理目录: %s", dirs)
     total = 0
-    failed = 0
-    for raw_arg in dirs:
-        data_dir = _resolve_data_dir(raw_arg)
-        if not os.path.isdir(data_dir):
-            log.error("目录不存在: %s", data_dir)
-            failed += 1
-            continue
-        try:
-            log.info("处理目录: %s", data_dir)
-            n = plot_match_curves(data_dir, project_dir)
-            total += n
-        except FileNotFoundError as e:
-            log.error("[%s] %s", data_dir, e)
-            failed += 1
-        except ValueError as e:
-            log.error("[%s] %s", data_dir, e)
-            failed += 1
+    try:
+        log.info("处理目录: %s", data_dir)
+        n = plot_match_curves(data_dir, project_dir)
+        total += n
+    except (FileNotFoundError, ValueError) as e:
+        log.error("[%s] %s", data_dir, e)
+        sys.exit(1)
     if total:
         log.info("共生成 %d 张曲线图。", total)
-    if failed:
-        sys.exit(1)
 
 
 if __name__ == "__main__":

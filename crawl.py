@@ -6,6 +6,7 @@
 """
 import logging
 import os
+import sys
 from datetime import datetime
 
 from selenium import webdriver
@@ -60,10 +61,30 @@ def create_driver():
 
 
 def main():
+    """
+    抓取当前盘口数据。
+
+    用法（与 merge_data.py 保持一致的参数形式）:
+      python crawl.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+
+    说明：
+    - 目前 crawl.py 实际仍按「执行当下的实时盘口」抓取，不依赖传入时间点，
+      这里的起始/终止时间主要用于与 merge_data.py 等脚本保持一致的调用方式，
+      便于 main.py 统一管理参数，避免混淆。
+    """
     log = _setup_logging()
     removed = delete_old_logs(DEBUG_LOG_DIR, days=LOG_RETENTION_DAYS)
     if removed:
         log.info("已删除 %d 个超过 %d 天的日志文件: %s", len(removed), LOG_RETENTION_DAYS, removed)
+
+    args = sys.argv[1:]
+    if len(args) != 2 or not all(len(a) == 10 and a.isdigit() for a in args):
+        log.error(
+            "用法: python crawl.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>，例如: python crawl.py 2026031012 2026031111"
+        )
+        sys.exit(1)
+    start_arg, end_arg = args
+    log.info("收到时间区间参数: [%s, %s]（当前版本仅用于日志标记，不影响抓取行为）", start_arg, end_arg)
     driver = None
     try:
         log.info("创建 Chrome 驱动...")

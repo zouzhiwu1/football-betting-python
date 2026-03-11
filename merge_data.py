@@ -12,11 +12,13 @@
   在这两个时间点覆盖的日期目录中查找所有时间戳在区间内的 .xls 文件，
   并合并为一个一览表。
 详细日志写入 logs/merge_data{YYYYMMDDHH}.log。
-用法: python merge_data.py [数据目录或相对子目录]
-  - 不传参数时默认为当天日期 YYYYMMDD（如 20260308）
-  - 相对路径会相对于 config.DOWNLOAD_DIR 解析，绝对路径则直接使用
-例如: python merge_data.py          （处理当天目录）
-     python merge_data.py 20260307
+
+用法（仅接收两个时间点参数，与其它批处理脚本保持一致）:
+  python merge_data.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+
+例如:
+  python merge_data.py 2026030812 2026030911
+
 工程目录下必须有 template.xlsx，以其第 1 行和第 2 行作为 CSV 的表头（两行表头）。
 """
 import csv
