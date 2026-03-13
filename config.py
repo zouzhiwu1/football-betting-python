@@ -44,7 +44,7 @@ CUTOFF_HOUR = int(os.environ.get("CRAWLER_CUTOFF_HOUR", "12"))
 # 如需调整定时任务时间，只需修改此处或设置环境变量 CRAWLER_TRIGGER_HOURS（逗号分隔）。
 TRIGGER_HOURS = [
     int(h)
-    for h in os.environ.get("CRAWLER_TRIGGER_HOURS", "2,4,6,13,15,17,19,21,23").split(",")
+    for h in os.environ.get("CRAWLER_TRIGGER_HOURS", "2,4,6,15,17,19,21,23").split(",")
     if h.strip()
 ]
 TRIGGER_HOURS.sort()
@@ -60,6 +60,14 @@ DEBUG_LOG_DIR = os.environ.get(
 LOG_RETENTION_DAYS = int(os.environ.get("CRAWLER_LOG_RETENTION_DAYS", "7"))
 # 调试：最多抓取场数，0=不限制；设为 3 时只抓 3 场即结束，便于快速验证 main.py 全流程
 DEBUG_MAX_MATCHES = int(os.environ.get("CRAWLER_DEBUG_MAX_MATCHES", "0"))
+# 调试：仅抓取包含指定关键词的比赛（主队或客队含任一关键词）。
+# 例如: CRAWLER_DEBUG_MATCH_KEYWORDS="帕纳辛纳科斯,里尔,博洛尼亚"
+_match_keywords_raw = os.environ.get("CRAWLER_DEBUG_MATCH_KEYWORDS", "")
+DEBUG_MATCH_KEYWORDS = [
+    kw.strip()
+    for kw in _match_keywords_raw.split(",")
+    if kw.strip()
+]
 
 # 足彩子菜单：目前只抓取「北单」
 ZUCAI_MENU_OPTIONS = ["北单"]

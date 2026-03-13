@@ -99,6 +99,7 @@ python merge_data.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 python calc_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
+- 实际**使用**的逻辑日期与 `merge_data.py` 一致：取 **起始时间所在日期** `YYYYMMDD`（即起始时间的前 8 位）。
 - 例如：`python calc_car.py 2026030812 2026030911` 会读取 `DOWNLOAD_DIR/20260308/Master20260308.csv`，在 `REPORT_DIR/20260308/` 下生成 `CAR20260308.xlsx`。
 - 依赖：`DOWNLOAD_DIR/{YYYYMMDD}/` 下需已存在 `Master{YYYYMMDD}.csv`（即先运行 `merge_data.py`）；工程目录下需有 `template.xlsx`。
 
@@ -114,6 +115,7 @@ python calc_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
+- 实际使用的逻辑日期与 `merge_data.py` 一致：使用 **起始时间所在日期** `YYYYMMDD`。
 - 输出图片保存在对应报告目录 `REPORT_DIR/{YYYYMMDD}/` 下，文件名：`{主队}_VS_{客队}_曲线.png`。
 - 依赖：`REPORT_DIR/{YYYYMMDD}/` 下需已存在 `CAR{YYYYMMDD}.xlsx`（即先运行 `calc_car.py`）。
 
@@ -125,6 +127,8 @@ python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 
 建议：复制 `.env.example` 为 `.env`，按需修改，之后直接运行 `python main.py` 即可生效。
 
+### 环境变量一览
+
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `WORK_SPACE` | 工作目录根路径，其下默认放置 football-betting-data、football-betting-report、football-betting-log；改此处即可统一改默认路径 | `~/Documents/cursor` |
@@ -134,6 +138,47 @@ python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 | `CRAWLER_CUTOFF_HOUR` | 跨天临界点（0～23 时）。该时及之后 → 当日文件夹；该时之前 → 前一日文件夹；`main.py` 也据此划分 24 小时逻辑区间 | `12` |
 | `CRAWLER_TIMEZONE` | 用于“当前时间”的时区（决定下载目录/文件名） | `Asia/Tokyo` |
 | `CRAWLER_HEADLESS` | `1` 无头模式，`0` 有浏览器界面 | `1` |
+| `CRAWLER_DEBUG_LOG_DIR` | 日志目录：crawl/merge_data 等日志、调试用 `debug_export_page_*.html` 的存放路径 | 默认 `WORK_SPACE/football-betting-log` |
+| `CRAWLER_LOG_RETENTION_DAYS` | 日志保留天数，超过此天数的日志文件会在运行前被删除 | `7` |
+| `CRAWLER_TRIGGER_HOURS` | 定时任务触发整点（逗号分隔，0～23），仅影响 `main.py` 无参数时的区间计算 | `2,4,6,15,17,19,21,23` |
+| `CRAWLER_DEBUG_MAX_MATCHES` | **调试用**：最多抓取场数，`0` 表示不限制；设为正整数（如 `3`）则只抓前 N 场即结束，便于快速跑通流程 | `0` |
+| `CRAWLER_DEBUG_MATCH_KEYWORDS` | **调试用**：仅抓取主队或客队名称包含任一关键词的比赛，逗号分隔。例如 `帕纳辛纳科斯,里尔,博洛尼亚`。不设或为空则抓取全部 | 未设置 |
+
+### 环境变量的使用方式
+
+**1. 使用 .env 文件（推荐）**
+
+在项目根目录（与 `main.py` 同级）创建 `.env`，每行一个变量，格式：`变量名=值`。  
+运行 `python main.py` 或 `python crawl.py ...` 时会自动加载，无需在终端里重复设置。
+
+```bash
+# 示例：只改路径和是否无头
+WORK_SPACE=/Users/xxx/Documents/football-betting
+CRAWLER_HEADLESS=0
+```
+
+**2. 命令行临时覆盖**
+
+在当次命令前加上 `变量名=值`，只对这一条命令生效，不影响 `.env` 或其它终端会话。
+
+```bash
+CRAWLER_HEADLESS=0 python main.py
+CRAWLER_DEBUG_MAX_MATCHES=3 python main.py
+```
+
+**3. 调试时只抓部分比赛**
+
+- **只抓前 N 场**（快速验证流程）：设置 `CRAWLER_DEBUG_MAX_MATCHES=3`（或其它正整数）。
+- **只抓某几支球队**：设置 `CRAWLER_DEBUG_MATCH_KEYWORDS=主队名,客队名`，例如  
+  `CRAWLER_DEBUG_MATCH_KEYWORDS=帕纳辛纳科斯,里尔,博洛尼亚`。  
+  主队或客队名称包含任一关键词的比赛才会被下载。
+
+**4. 正式跑全部比赛时关闭调试变量**
+
+若之前为调试设置过上述变量，正式跑全量时需取消，否则仍只会抓部分场次或前 N 场。
+
+- **若在 .env 里设置的**：打开 `.env`，删掉或注释掉 `CRAWLER_DEBUG_MAX_MATCHES`、`CRAWLER_DEBUG_MATCH_KEYWORDS` 两行。
+- **若在终端里用 export 设置的**：当前终端执行 `unset CRAWLER_DEBUG_MATCH_KEYWORDS` 和 `unset CRAWLER_DEBUG_MAX_MATCHES`，再运行 `python main.py`。
 
 **.env 示例**（在项目根目录创建 `.env`，按需填写）：
 
@@ -141,17 +186,23 @@ python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 # 跨天临界点（例如 12 点：12 点及以后算当天，12 点前算前一天）
 # CRAWLER_CUTOFF_HOUR=12
 # 下载与合并/计算使用的根目录
-CRAWLER_DOWNLOAD_DIR=/path/to/足球彩票/北单
+# CRAWLER_DOWNLOAD_DIR=/path/to/足球彩票/北单
 # 有界面运行（调试时可设为 0）
-CRAWLER_HEADLESS=1
+# CRAWLER_HEADLESS=1
 # 时区（一般不需改）
-CRAWLER_TIMEZONE=Asia/Tokyo
+# CRAWLER_TIMEZONE=Asia/Tokyo
+
+# 调试：只抓前 3 场或只抓某几队时取消注释并填写；正式跑全量时保持注释或删除
+# CRAWLER_DEBUG_MAX_MATCHES=3
+# CRAWLER_DEBUG_MATCH_KEYWORDS=帕纳辛纳科斯,里尔,博洛尼亚
 ```
 
 **命令行临时覆盖示例**：
 
 ```bash
 CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
+# 调试：只抓前 5 场
+CRAWLER_DEBUG_MAX_MATCHES=5 python main.py
 ```
 
 ---
@@ -160,7 +211,7 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
 
 建议使用**操作系统自带的定时任务**在以下整点自动执行 `python main.py`（抓取 → 合并 → 计算 → 曲线图）：
 
-**触发时间（每天）**：2、4、6、13、15、17、19、21、23 点。
+**触发时间（每天）**：2、4、6、15、17、19、21、23 点。
 
 下面按系统说明如何配置。请将示例中的 **项目目录**、**Python 路径** 替换为你本机的实际路径。
 
@@ -200,11 +251,11 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
   <string>com.football.betting.pipeline</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{WORKSPACE}/football-betting-pipeline/.venv/bin/python</string>
+    <string>/Users/你的用户名/Documents/cursor/football-betting-pipeline/.venv/bin/python</string>
     <string>main.py</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>{WORKSPACE}/football-betting-pipeline</string>
+  <string>/Users/你的用户名/Documents/cursor/football-betting-pipeline</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
@@ -218,9 +269,9 @@ CRAWLER_HEADLESS=0 CRAWLER_DOWNLOAD_DIR=/path/to/excels python main.py
     <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>{WORKSPACE}/football-betting-log/football-betting-main.log</string>
+  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.log</string>
   <key>StandardErrorPath</key>
-  <string>{WORKSPACE}/football-betting-log/football-betting-main.err</string>
+  <string>/Users/你的用户名/Documents/cursor/football-betting-log/football-betting-main.err</string>
 </dict>
 </plist>
 ```
@@ -253,20 +304,20 @@ launchctl load ~/Library/LaunchAgents/com.football.betting.pipeline.plist
 ### Linux（cron）
 
 1. 编辑当前用户 crontab：`crontab -e`。
-2. 添加一行（整点 2、4、6、13、15、17、19、21、23 各执行一次）：
+2. 添加一行（整点 2、4、6、15、17、19、21、23 各执行一次）：
 
 ```cron
-0 2,4,6,13,15,17,19,21,23 * * * /path/to/football-betting-pipeline/.venv/bin/python /path/to/football-betting-pipeline/main.py
+0 2,4,6,15,17,19,21,23 * * * /path/to/football-betting-pipeline/.venv/bin/python /path/to/football-betting-pipeline/main.py
 ```
 
 或将 `python` 和 `main.py` 拆开，并保证在项目目录下执行：
 
 ```cron
-0 2,4,6,13,15,17,19,21,23 * * * cd /path/to/football-betting-pipeline && .venv/bin/python main.py
+0 2,4,6,15,17,19,21,23 * * * cd /path/to/football-betting-pipeline && .venv/bin/python main.py
 ```
 
 3. 将 `/path/to/football-betting-pipeline` 替换为实际项目根目录；若未使用虚拟环境，改为系统 `python3` 路径。
-4. 保存退出。cron 会按系统时区在每天 02:00、04:00、06:00、13:00、15:00、17:00、19:00、21:00、23:00 执行。
+4. 保存退出。cron 会按系统时区在每天 02:00、04:00、06:00、15:00、17:00、19:00、21:00、23:00 执行。
 
 **查看日志**：若未重定向，cron 输出会发到用户邮件；可改为 `... main.py >> /tmp/football-crawler.log 2>&1` 便于排查。
 
@@ -301,8 +352,8 @@ python3 -m venv .venv
 ```bash
 git remote -v
 # 将 origin 指向新仓库名（替换为你的用户名/组织名）
-git remote set-url origin https://github.com/{name}/football-betting-pipeline.git
-# 或 SSH：git remote set-url origin git@github.com:{name}/football-betting-pipeline.git
+git remote set-url origin https://github.com/你的用户名/football-betting-pipeline.git
+# 或 SSH：git remote set-url origin git@github.com:你的用户名/football-betting-pipeline.git
 ```
 
 **5. macOS 定时任务**（若已配置 launchd）

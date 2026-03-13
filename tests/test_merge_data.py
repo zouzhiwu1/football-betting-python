@@ -113,7 +113,9 @@ def test_collect_files_in_range_skips_non_xls_and_unparseable(tmp_path, monkeypa
 
 
 def test_collect_files_in_range_skips_nonexistent_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr("merge_data.DOWNLOAD_DIR", str(tmp_path))
+    # 指向一个不存在的 DOWNLOAD_DIR 以覆盖 “下载根目录不存在” 分支
+    non_exist = tmp_path / "not_exists"
+    monkeypatch.setattr("merge_data.DOWNLOAD_DIR", str(non_exist))
     log = logging.getLogger("test")
     start_dt = datetime.datetime(2026, 3, 8, 12, 0, 0)
     end_dt = datetime.datetime(2026, 3, 8, 13, 0, 0)

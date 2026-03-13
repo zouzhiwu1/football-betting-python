@@ -32,6 +32,7 @@ from config import (
     DEBUG_LOG_DIR,
     CUTOFF_HOUR,
     DEBUG_MAX_MATCHES,
+    DEBUG_MATCH_KEYWORDS,
     ZUCAI_MENU_OPTIONS,
     COL_DATE,
     COL_TIME,
@@ -97,6 +98,13 @@ class ZhiyunScraper:
             for i, row in enumerate(match_rows, 1):
                 home = self._get_cell_text(row, COL_HOME)
                 away = self._get_cell_text(row, COL_AWAY)
+
+                # 若配置了 DEBUG_MATCH_KEYWORDS，则仅抓取主队/客队名称包含任一关键词的比赛
+                if DEBUG_MATCH_KEYWORDS:
+                    text = f"{home} {away}"
+                    if not any(kw in text for kw in DEBUG_MATCH_KEYWORDS):
+                        continue
+
                 print(f"{i}. {home} vs {away}")
                 self._download_excel_for_row(wait, row, i, home, away, time_suffix=self._run_time_suffix)
                 if DEBUG_MAX_MATCHES and i >= DEBUG_MAX_MATCHES:
@@ -346,18 +354,46 @@ class ZhiyunScraper:
             print(f"第 {index} 场比赛未找到「欧」链接，跳过。该行前几列: {row_preview}")
             return
 
-        try:
-            original_window = self.driver.current_window_handle
-        except NoSuchWindowException:
-            if not self._ensure_valid_window():
-                print(f"第 {index} 场 {home} vs {away}：无有效窗口，无法下载")
+        # 优先从本行任意链接中拿到真正的 1x2 页 URL（部分场次「欧」的 href 是 javascript 或资料库页，会开错页）
+        target_href = None
+        for a in row.find_elements(By.TAG_NAME, "a"):
+            h = (a.get_attribute("href") or "").strip()
+            if h and "live.nowscore.com" in h and "1x2" in h:
+                target_href = h
+                break
+        if not target_href:
+            link = europe_links[0]
+            target_href = (link.get_attribute("href") or "").strip()
+        if not target_href or target_href.startswith("javascript:") or target_href == "#":
+            print(f"第 {index} 场 {home} vs {away}：本行无有效 1x2 链接（href 为空或 javascript），改为点击「欧」打开")
+            # 无可用 URL 时仍用点击，依赖站点弹窗
+            link = europe_links[0]
+            try:
+                original_window = self.driver.current_window_handle
+            except NoSuchWindowException:
+                if not self._ensure_valid_window():
+                    print(f"第 {index} 场 {home} vs {away}：无有效窗口，无法下载")
+                    return
+                original_window = self.driver.current_window_handle
+            existing_windows = set(self.driver.window_handles)
+            self._scroll_into_view_and_click(link)
+        else:
+            # 补全协议相对链接
+            if target_href.startswith("//"):
+                target_href = "https:" + target_href
+            try:
+                original_window = self.driver.current_window_handle
+            except NoSuchWindowException:
+                if not self._ensure_valid_window():
+                    print(f"第 {index} 场 {home} vs {away}：无有效窗口，无法下载")
+                    return
+                original_window = self.driver.current_window_handle
+            existing_windows = set(self.driver.window_handles)
+            try:
+                self.driver.execute_script("window.open(arguments[0], '_blank');", target_href)
+            except Exception as e:
+                print(f"第 {index} 场 {home} vs {away}：无法打开 1x2 链接 {target_href}：{e}")
                 return
-            original_window = self.driver.current_window_handle
-
-        existing_windows = set(self.driver.window_handles)
-
-        link = europe_links[0]
-        self._scroll_into_view_and_click(link)
 
         def _find_new_window(d):
             handles = set(d.window_handles)
@@ -382,6 +418,27 @@ class ZhiyunScraper:
                 )
             except Exception:
                 pass
+
+            time.sleep(2.0)
+            # 若被重定向到资料库页（info.nowscore.com），该页无「导出Excel」，需跳到 1x2 页
+            current_url = (self.driver.current_url or "").lower()
+            if "info.nowscore.com" in current_url:
+                goto_url = None
+                for a in self.driver.find_elements(By.XPATH, "//a[contains(@href,'live.nowscore.com') and contains(@href,'1x2')]"):
+                    try:
+                        h = (a.get_attribute("href") or "").strip()
+                        if h and "1x2" in h:
+                            goto_url = "https:" + h if h.startswith("//") else h
+                            break
+                    except Exception:
+                        continue
+                if goto_url:
+                    self.driver.get(goto_url)
+                    WebDriverWait(self.driver, WAIT_ELEMENT).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "body"))
+                    )
+                    time.sleep(2.0)
+
             time.sleep(2.5)  # 详情页可能较慢，多等一会
 
             # 之前尝试过在详情页直接拼出 ExportExcelNew.aspx 的 URL 再用 requests 下载，

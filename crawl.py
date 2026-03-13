@@ -47,8 +47,10 @@ def create_driver():
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # 静音浏览器，避免访问比分页时进球提示音干扰本机
+    # 静音浏览器，避免访问比分页时进球/口哨等提示音干扰本机
     options.add_argument("--mute-audio")
+    # 禁止自动播放媒体（需用户交互后才可播放），进一步减少页面音效
+    options.add_argument("--autoplay-policy=document-user-activation-required")
 
     prefs = {
         "download.default_directory": DOWNLOAD_DIR,
@@ -59,7 +61,31 @@ def create_driver():
     options.add_experimental_option("prefs", prefs)
 
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service, options=options)
+
+    # 在每个新页面注入静音脚本：静音所有 audio/video，并定期拉取新元素（应对动态加载）
+    _inject_mute_script(driver)
+    return driver
+
+
+def _inject_mute_script(driver):
+    """通过 CDP 在每次加载新文档时注入静音脚本，确保页面内音视频与部分 Web Audio 被静音。"""
+    script = """
+(function() {
+  function muteMedia() {
+    document.querySelectorAll('audio, video').forEach(function(el) {
+      el.muted = true;
+      el.volume = 0;
+    });
+  }
+  muteMedia();
+  setInterval(muteMedia, 800);
+})();
+"""
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+    except Exception:
+        pass
 
 
 def main():
